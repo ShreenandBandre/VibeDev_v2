@@ -1,0 +1,253 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+// ==========================================
+// USER & SYSTEM AUTHENTICATION MODELS
+// ==========================================
+
+enum UserRole {
+  ADMIN
+  USER
+  PREMIUM_USER
+}
+
+model User {
+  id            String        @id @default(cuid()) @map("_id")
+  name          String?
+  email         String        @unique
+  emailVerified DateTime?     @map("email_verified") // 💡 Auth.js requires this field to track verification states!
+  image         String?
+  role          UserRole      @default(USER)
+  accounts      Account[]
+  playgrounds   Playground[]
+  myPlayground  StarMark[]
+  chatMessages  ChatMessage[]
+
+  orgMembers    OrgMember[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid()) @map("_id")
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id") // 💡 CRITICAL FIX FOR GOOGLE HANDSHAKES
+  refresh_token     String? @map("refresh_token")
+  access_token      String? @map("access_token")
+  expires_at        Int?    @map("expires_at")
+  token_type        String? @map("token_type")
+  scope             String?
+  id_token          String? @map("id_token")
+  session_state     String? @map("session_state")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+// ==========================================
+// CORE WORKSPACE ENGINE & FILE STRUCTURE
+// ==========================================
+
+enum Templates {
+  REACT
+  NEXTJS
+  EXPRESS
+  VUE
+  HONO
+  ANGULAR
+}
+
+model Playground {
+  id          String    @id @default(cuid()) @map("_id")
+  title       String
+  description String?
+  template    Templates @default(REACT)
+  userId      String    @map("user_id")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId String?     @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  templateFiles TemplateFile[]
+  Starmark      StarMark[]
+
+  // Inverse relation for the Architect Module
+  repositoryMap RepositoryMap?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model TemplateFile {
+  id           String @id @default(cuid()) @map("_id")
+  playgroundId String @map("playground_id")
+
+  // 🚀 KEEP THIS: Deleting a playground project still automatically drops all files in one go!
+  playground Playground @relation(fields: [playgroundId], references: [id], onDelete: Cascade)
+
+  name     String
+  path     String
+  content  String  @default("")
+  isFolder Boolean @default(false)
+
+  // 🔗 💎 FIXED FOR SELF-RELATIONS: Resetting target to NoAction to satisfy Prisma's P1012 build rules
+  parentId String?        @map("parent_id")
+  parent   TemplateFile?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  children TemplateFile[] @relation("FolderHierarchy")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([playgroundId])
+  @@index([parentId])
+}
+
+model StarMark {
+  id           String   @id @default(cuid()) @map("_id")
+  userId       String
+  playgroundId String
+  isMarked     Boolean
+  createdAt    DateTime @default(now())
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  playground Playground @relation(fields: [playgroundId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, playgroundId])
+}
+
+// ==========================================
+// AI CORE FEATURES UTILITY CHANNELS
+// ==========================================
+
+model ChatMessage {
+  id        String   @id @default(cuid()) @map("_id")
+  userId    String
+  role      String // "user" or "assistant"
+  content   String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AIChatSession {
+  id           String      @id @default(cuid()) @map("_id")
+  userId       String      @map("user_id")
+  playgroundId String      @map("playground_id")
+  title        String      @default("New AI Consultation Thread")
+  mode         String      @default("chat") // "chat" | "review" | "fix" | "optimize"
+  messages     DbMessage[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([playgroundId])
+}
+
+model DbMessage {
+  id          String         @id @default(cuid()) @map("_id")
+  sessionId   String         @map("session_id")
+  session     AIChatSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role        String // "user" | "assistant"
+  content     String
+  type        String         @default("chat") // "chat" | "code_review" | "error_fix" | "optimization"
+  modelUsed   String?        @map("model_used")
+  tokensUsed  Int?           @map("tokens_used")
+  attachments DbAttachment[]
+  suggestions DbSuggestion[]
+  createdAt   DateTime       @default(now())
+}
+
+model DbAttachment {
+  id        String    @id @default(cuid()) @map("_id")
+  messageId String    @map("message_id")
+  message   DbMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  name      String
+  path      String?
+  content   String
+  language  String
+  size      Int
+}
+
+model DbSuggestion {
+  id           String    @id @default(cuid()) @map("_id")
+  messageId    String    @map("message_id")
+  message      DbMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  title        String
+  description  String
+  code         String
+  language     String
+  category     String
+  confidence   Float?
+  fileName     String?
+  insertLine   Int?
+  insertColumn Int?
+}
+
+model RepositoryMap {
+  id           String     @id @default(cuid()) @map("_id")
+  playgroundId String     @unique @map("playground_id") // This ALREADY creates an index
+  playground   Playground @relation(fields: [playgroundId], references: [id], onDelete: Cascade)
+
+  nodes        Json
+  edges        Json
+  summaries    Json?
+  lastAnalyzed DateTime @default(now())
+
+  // REMOVE: @@index([playgroundId]) -- It is redundant because of the @unique above
+}
+
+// ==========================================
+// WORKSPACE MULTI-TENANCY & TEAM MODELS
+// ==========================================
+
+model Organization {
+  id          String       @id @default(cuid()) @map("_id")
+  name        String
+  slug        String       @unique
+  imageUrl    String?
+  ownerId     String       @map("owner_id")
+  
+  members     OrgMember[]
+  playgrounds Playground[] // A playground can be assigned to an organization
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("organizations")
+}
+
+model OrgMember {
+  id             String       @id @default(cuid()) @map("_id")
+  organizationId String       @map("organization_id")
+  userId         String       @map("user_id")
+  role           String       @default("MEMBER") // "OWNER" | "ADMIN" | "MEMBER"
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("org_members")
+}
