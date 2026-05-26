@@ -3,8 +3,10 @@
 import React, { useEffect, useState, useTransition } from "react";
 import { useWorkspace } from "@/context/workspace-context";
 import { getWorkspaceProjects } from "@/app/actions/projects";
+import { syncRepositoryUpstream } from "@/app/actions/git-cloner"; // 🚀 Sync Server Action
 import { Button } from "@/components/ui/button";
-import { ChangelogStream } from "@/components/dashboard/changelog-stream"; // 🚀 Imported component
+import { ChangelogStream } from "@/components/dashboard/changelog-stream";
+import { useClonerStore } from "@/store/use-cloner-store"; 
 import { 
   Plus, 
   RefreshCcw, 
@@ -12,9 +14,20 @@ import {
   GitFork, 
   MoreVertical, 
   Terminal,
-  Layers3
+  Layers3,
+  GitPullRequest
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 export default function DashboardPage() {
   const { currentWorkspaceType, activeOrgId } = useWorkspace();
@@ -22,6 +35,11 @@ export default function DashboardPage() {
   const [projects, setProjects] = useState<any[]>([]);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  // Tracks which specific card is processing upstream delta runs
+  const [isSyncing, setIsSyncing] = useState<string | null>(null);
+
+  const clonerStore = useClonerStore();
 
   const fetchProjects = () => {
     setError(null);
@@ -38,6 +56,25 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchProjects();
   }, [currentWorkspaceType, activeOrgId]);
+
+  // Handler for calculating and applying delta synchronization updates
+  const handlePullSync = async (projectId: string, descriptionText: string) => {
+    const gitUrlMatch = descriptionText?.match(/https:\/\/github\.com\/[^\s]+/);
+    if (!gitUrlMatch) {
+      alert("No upstream repository sync route detected for this workspace model layout.");
+      return;
+    }
+
+    setIsSyncing(projectId);
+    const result = await syncRepositoryUpstream(projectId, gitUrlMatch[0]);
+    setIsSyncing(null);
+
+    if (result.success) {
+      fetchProjects(); // Instantly refresh tracking arrays on UI canvas grids
+    } else {
+      alert(result.error || "Failed running synchronization modules.");
+    }
+  };
 
   return (
     <div className="space-y-10 max-w-7xl mx-auto px-2 pb-16">
@@ -65,8 +102,11 @@ export default function DashboardPage() {
 
       {/* 2. CORE ACTION ENTRY CARDS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* CREATE FRESH PLAYGROUND CARD */}
-        <div className="group relative border border-zinc-800/80 bg-zinc-900/20 rounded-2xl p-6 flex justify-between items-center overflow-hidden hover:border-zinc-700/60 transition-all duration-300 cursor-pointer">
+        {/* CREATE FRESH PLAYGROUND CARD (🚀 NOW CONNECTED VIA ROUTER REDIRECT) */}
+        <div 
+          onClick={() => router.push("/dashboard/new-playground")}
+          className="group relative border border-zinc-800/80 bg-zinc-900/20 rounded-2xl p-6 flex justify-between items-center overflow-hidden hover:border-zinc-700/60 transition-all duration-300 cursor-pointer"
+        >
           <div className="space-y-2 max-w-[65%]">
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono bg-blue-950/40 text-blue-400 border border-blue-900/50">
               {`>_`} CORE ENGINE
@@ -93,7 +133,10 @@ export default function DashboardPage() {
         </div>
 
         {/* CLONE GIT REPOSITORY CARD */}
-        <div className="group relative border border-zinc-800/80 bg-zinc-900/20 rounded-2xl p-6 flex justify-between items-center overflow-hidden hover:border-zinc-700/60 transition-all duration-300 cursor-pointer">
+        <div 
+          onClick={() => clonerStore.setOpen(true)}
+          className="group relative border border-zinc-800/80 bg-zinc-900/20 rounded-2xl p-6 flex justify-between items-center overflow-hidden hover:border-zinc-700/60 transition-all duration-300 cursor-pointer"
+        >
           <div className="space-y-2 max-w-[65%]">
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-950/40 text-indigo-400 border border-indigo-900/50">
               <GitFork size={10} /> VCS GATEWAY
@@ -128,7 +171,6 @@ export default function DashboardPage() {
 
       {/* 3. ASYMMETRIC TWO-COLUMN DASHBOARD LAYOUT GRID SPLIT */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 items-start">
-        
         {/* LEFT & CENTER PANEL CANVAS: ACTIVE PROJECTS LIST */}
         <div className="xl:col-span-2 space-y-4">
           <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-zinc-500 uppercase">
@@ -151,75 +193,154 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {projects.map((project) => (
-                <div 
-                  key={project.id} 
-                  className="border border-zinc-800 bg-zinc-900/20 rounded-xl p-5 space-y-4 hover:border-zinc-700/80 transition-all group flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-mono bg-blue-950/40 text-blue-400 border border-blue-900/50 px-2 py-0.5 rounded font-bold uppercase">
-                        {project.template}
-                      </span>
-                      <button className="text-zinc-600 hover:text-zinc-300 transition p-1">
-                        <MoreVertical size={14} />
-                      </button>
+              {projects.map((project) => {
+                const isGitWorkspace = project.description?.includes("https://github.com");
+
+                return (
+                  <div 
+                    key={project.id} 
+                    className="border border-zinc-800 bg-zinc-900/20 rounded-xl p-5 space-y-4 hover:border-zinc-700/80 transition-all group flex flex-col justify-between"
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono bg-blue-950/40 text-blue-400 border border-blue-900/50 px-2 py-0.5 rounded font-bold uppercase">
+                          {project.template}
+                        </span>
+                        
+                        {/* UPSTREAM REFRESH TRIGGER FOR REPO CHANGES */}
+                        {isGitWorkspace && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={isSyncing === project.id}
+                            onClick={() => handlePullSync(project.id, project.description)}
+                            className="h-7 w-7 text-zinc-500 hover:text-emerald-400 bg-zinc-900/40 border border-zinc-800/80 rounded"
+                          >
+                            <RefreshCcw size={12} className={isSyncing === project.id ? "animate-spin text-emerald-400" : ""} />
+                          </Button>
+                        )}
+
+                        {!isGitWorkspace && (
+                          <button className="text-zinc-600 hover:text-zinc-300 transition p-1">
+                            <MoreVertical size={14} />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="mt-3">
+                        <h3 className="text-base font-bold text-zinc-200 group-hover:text-blue-400 transition-colors truncate">
+                          {project.title}
+                        </h3>
+                        <p className="text-xs text-zinc-400 font-light mt-1 line-clamp-2 min-h-[32px]">
+                          {project.description || "Custom architectural execution context profile."}
+                        </p>
+                      </div>
                     </div>
 
-                    <div className="mt-3">
-                      <h3 className="text-base font-bold text-zinc-200 group-hover:text-blue-400 transition-colors truncate">
-                        {project.title}
-                      </h3>
-                      <p className="text-xs text-zinc-400 font-light mt-1 line-clamp-2 min-h-[32px]">
-                        {project.description || "Custom architectural execution context profile."}
-                      </p>
+                    <div className="pt-3 border-t border-zinc-800/80 space-y-3">
+                      <div className="flex items-center justify-between text-[11px] font-mono text-zinc-500">
+                        <div className="flex items-center gap-1">
+                          <span>ID:</span>
+                          <span className="text-zinc-400 uppercase">{project.id.slice(-6)}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <span>🕒</span>
+                          <span>{new Date(project.updatedAt).toLocaleDateString()}</span>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => router.push(`/dashboard/visualizer/${project.id}`)}
+                          className="w-full bg-zinc-900/60 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-zinc-800 text-xs h-8 gap-1.5"
+                        >
+                          <Layers3 size={12} className="text-blue-500" />
+                          Visualizer
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => router.push(`/dashboard/ide/${project.id}`)}
+                          className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/60 text-xs h-8 gap-1.5"
+                        >
+                          <Terminal size={12} />
+                          Open IDE
+                        </Button>
+                      </div>
                     </div>
                   </div>
-
-                  <div className="pt-3 border-t border-zinc-800/80 space-y-3">
-                    <div className="flex items-center justify-between text-[11px] font-mono text-zinc-500">
-                      <div className="flex items-center gap-1">
-                        <span>ID:</span>
-                        <span className="text-zinc-400 uppercase">{project.id.slice(-6)}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <span>🕒</span>
-                        <span>{new Date(project.updatedAt).toLocaleDateString()}</span>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 pt-1">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => router.push(`/dashboard/visualizer/${project.id}`)}
-                        className="w-full bg-zinc-900/60 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-zinc-800 text-xs h-8 gap-1.5"
-                      >
-                        <Layers3 size={12} className="text-blue-500" />
-                        Visualizer
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => router.push(`/dashboard/ide/${project.id}`)}
-                        className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/60 text-xs h-8 gap-1.5"
-                      >
-                        <Terminal size={12} />
-                        Open IDE
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* 🚀 RIGHT PANEL CANVAS: HIGH-END GITHUB CHANGELOG STREAM */}
+        {/* RIGHT PANEL CANVAS: HIGH-END GITHUB CHANGELOG STREAM */}
         <div className="xl:col-span-1">
           <ChangelogStream />
         </div>
-
       </div>
+
+      {/* CLONING INTERCEPT MODAL */}
+      <Dialog open={clonerStore.isOpen} onOpenChange={clonerStore.setOpen}>
+        <DialogContent className="sm:max-w-[480px] bg-zinc-950 border border-zinc-900 text-zinc-100 shadow-2xl rounded-2xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-zinc-100 tracking-tight flex items-center gap-2">
+              <GitPullRequest size={18} className="text-indigo-500" /> Import Git Workspace Repository
+            </DialogTitle>
+            <DialogDescription className="text-xs text-zinc-400 font-light mt-1.5 leading-relaxed">
+              Provide a public repository address string. Our compiler will mirror files directly into your isolated cluster sandbox model.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-mono font-bold tracking-widest text-zinc-500 uppercase">
+                GitHub Repository URL
+              </label>
+              <Input
+                type="url"
+                disabled={clonerStore.isCloning}
+                placeholder="https://github.com/username/repository"
+                value={clonerStore.repoUrl}
+                onChange={(e) => clonerStore.setRepoUrl(e.target.value)}
+                className="bg-zinc-900/60 border-zinc-800/80 text-zinc-200 placeholder:text-zinc-600 focus-visible:ring-1 focus-visible:ring-indigo-500 focus-visible:ring-offset-0 h-10 text-sm"
+              />
+            </div>
+
+            {clonerStore.error && (
+              <div className="p-3 border border-red-950/40 bg-red-950/10 text-red-400 rounded-lg text-xs font-mono leading-normal">
+                ⚠️ {clonerStore.error}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="ghost"
+              disabled={clonerStore.isCloning}
+              onClick={() => clonerStore.setOpen(false)}
+              className="hover:bg-zinc-900 hover:text-white border border-transparent hover:border-zinc-800 text-xs text-zinc-400 h-9 px-4 rounded-lg"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={clonerStore.isCloning}
+              onClick={() => clonerStore.executeClone(currentWorkspaceType, activeOrgId, fetchProjects)}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-500/30 text-xs font-medium h-9 px-4 rounded-lg shadow-lg shadow-indigo-600/10 flex items-center gap-2"
+            >
+              {clonerStore.isCloning ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Stream Syncing...
+                </>
+              ) : (
+                "Initialize Clone"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -31,6 +31,7 @@ model User {
   playgrounds   Playground[]
   myPlayground  StarMark[]
   chatMessages  ChatMessage[]
+  activityLogs  ActivityLog[] // 🚀 Added back-relation tracking for system feed operations
 
   orgMembers    OrgMember[]
 
@@ -82,7 +83,7 @@ model Playground {
   userId      String    @map("user_id")
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  organizationId String?     @map("organization_id")
+  organizationId String?       @map("organization_id")
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   templateFiles TemplateFile[]
@@ -108,7 +109,7 @@ model TemplateFile {
   isFolder Boolean @default(false)
 
   // 🔗 💎 FIXED FOR SELF-RELATIONS: Resetting target to NoAction to satisfy Prisma's P1012 build rules
-  parentId String?        @map("parent_id")
+  parentId String?       @map("parent_id")
   parent   TemplateFile?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children TemplateFile[] @relation("FolderHierarchy")
 
@@ -163,17 +164,17 @@ model AIChatSession {
 }
 
 model DbMessage {
-  id          String         @id @default(cuid()) @map("_id")
-  sessionId   String         @map("session_id")
-  session     AIChatSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  role        String // "user" | "assistant"
-  content     String
-  type        String         @default("chat") // "chat" | "code_review" | "error_fix" | "optimization"
-  modelUsed   String?        @map("model_used")
-  tokensUsed  Int?           @map("tokens_used")
+  id           String         @id @default(cuid()) @map("_id")
+  sessionId    String         @map("session_id")
+  session      AIChatSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role         String // "user" | "assistant"
+  content      String
+  type         String         @default("chat") // "chat" | "code_review" | "error_fix" | "optimization"
+  modelUsed    String?        @map("model_used")
+  tokensUsed   Int?           @map("tokens_used")
   attachments DbAttachment[]
   suggestions DbSuggestion[]
-  createdAt   DateTime       @default(now())
+  createdAt    DateTime       @default(now())
 }
 
 model DbAttachment {
@@ -202,17 +203,26 @@ model DbSuggestion {
   insertColumn Int?
 }
 
+// ==========================================
+// 🚀 EXTENDED VISUALIZER DATA ARCHITECTURE
+// ==========================================
+
 model RepositoryMap {
   id           String     @id @default(cuid()) @map("_id")
   playgroundId String     @unique @map("playground_id") // This ALREADY creates an index
   playground   Playground @relation(fields: [playgroundId], references: [id], onDelete: Cascade)
 
+  // Nodes store elements: { id, label, type: 'folder' | 'file' | 'function', parentId, fileId }
   nodes        Json
+  // Edges store tracking links: { id, source, target, type: 'contains' | 'calls' | 'imports' }
   edges        Json
+  
+  // AI caching summaries mapping node strings -> { summary: string, complexity?: string }
   summaries    Json?
-  lastAnalyzed DateTime @default(now())
-
-  // REMOVE: @@index([playgroundId]) -- It is redundant because of the @unique above
+  
+  // Engine Processing Telemetry Sync State Hooks
+  status       String     @default("PENDING") // "PENDING" | "ANALYZING" | "COMPLETED" | "FAILED"
+  lastAnalyzed DateTime   @default(now())
 }
 
 // ==========================================
@@ -226,8 +236,9 @@ model Organization {
   imageUrl    String?
   ownerId     String       @map("owner_id")
   
-  members     OrgMember[]
-  playgrounds Playground[] // A playground can be assigned to an organization
+  members      OrgMember[]
+  playgrounds  Playground[] 
+  activityLogs ActivityLog[] // 🚀 Added back-relation tracking for organizational telemetry streams
 
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
@@ -250,4 +261,27 @@ model OrgMember {
   @@unique([organizationId, userId])
   @@index([userId])
   @@map("org_members")
+}
+
+// ==========================================
+// 🚀 PLATFORM ACTIVITY LOGS / CHANGELOG MODEL
+// ==========================================
+
+model ActivityLog {
+  id             String        @id @default(cuid()) @map("_id")
+  title          String
+  description    String
+  type           String        // "GIT_CLONE" | "GIT_SYNC" | "WORKSPACE_ALERT"
+  
+  userId         String        @map("user_id")
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  organizationId String?       @map("organization_id")
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt      DateTime      @default(now())
+
+  @@index([userId])
+  @@index([organizationId])
+  @@map("activity_logs")
 }
