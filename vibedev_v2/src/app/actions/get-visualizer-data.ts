@@ -23,14 +23,28 @@ export async function getRepositoryTopology(playgroundId: string) {
     const rawNodes = (repoMap.nodes as any[]) || [];
     const edges = (repoMap.edges as any[]) || [];
 
-    // 3. Normalize structure safely so the client canvas maps them fluidly
+    // 3. Normalize structure safely while passing down content parameters
     const nodes = rawNodes.map((node: any) => ({
-      // Handle fallback schema variants for MongoDB tracking keys
       id: node.id || node._id?.toString(),
+      _id: node._id?.toString() || node.id,
       label: node.label || node.name || "unnamed_entity",
-      type: node.type || "file", // Reads 'folder' | 'file' | 'function' right out of the JSON
+      name: node.name || node.label || "unnamed_entity",
+      type: node.type || "file", 
       path: node.path || "",
-      parentId: node.parentId || node.fileId || null // preserves function connections back to parent file container
+      parentId: node.parentId || node.fileId || null,
+      
+      // 🚀 CRITICAL FIX: Pass data attributes so memory lookups succeed
+      content: node.content || node.rawContent || "",
+      summary: node.summary || null,
+      complexity: node.complexity || null,
+      data: {
+        id: node.id || node._id?.toString(),
+        fileId: node.fileId || node.parentId || null,
+        content: node.content || node.rawContent || "",
+        summary: node.summary || null,
+        complexity: node.complexity || null,
+        ...(node.data || {})
+      }
     }));
 
     // Debugging counters to verify collection states in your backend server console

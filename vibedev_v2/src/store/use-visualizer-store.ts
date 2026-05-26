@@ -86,25 +86,50 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
   fetchNodeSummary: async (nodeId: string, playgroundId: string, nodeType: "file" | "function") => {
     if (!nodeId || !playgroundId) return;
     
-    const currentSummaries = get().summaries;
-    if (currentSummaries[nodeId]?.summary) return;
-
     set({ isInspectorLoading: true });
     try {
+      // 1. Fire single file/function summary engine
       const res = await generateSingleFileSummary(nodeId, playgroundId, nodeType);
-      if (res && res.success) {
-        set((state) => ({
-          summaries: {
-            ...state.summaries,
-            [nodeId]: {
-              summary: res.summary || "No description cached.",
-              complexity: res.complexity || "Medium"
-            }
-          }
-        }));
-      }
+      
+      // 2. Locate node properties locally for absolute fallback safety
+      const currentNodes = get().nodes;
+      const targetNode = currentNodes.find(n => n.id === nodeId || n._id === nodeId || n.data?.id === nodeId);
+      
+      set((state) => {
+        const updatedSummaries = { ...state.summaries };
+        const incomingSummary = res?.summary || res?.data?.summary;
+        const incomingComplexity = res?.complexity || res?.data?.complexity;
+        const incomingRawContent = res?.rawContent || res?.data?.rawContent || targetNode?.content || targetNode?.data?.content || "";
+
+        // 🚀 Multi-key map resolution fallback payload (Binds data cleanly across both React Flow IDs and DB IDs)
+        const nodePayload = {
+          summary: incomingSummary || "No architecture summary compiled yet.",
+          complexity: incomingComplexity || "Low",
+          rawContent: incomingRawContent
+        };
+
+        // Populate baseline payload under targeted argument key
+        updatedSummaries[nodeId] = nodePayload;
+
+        // Cross-populate fallback keys if node records present alternative ID structures
+        if (targetNode?.id) updatedSummaries[targetNode.id] = nodePayload;
+        if (targetNode?._id) updatedSummaries[targetNode._id] = nodePayload;
+        if (targetNode?.data?.fileId) updatedSummaries[targetNode.data.fileId] = nodePayload;
+
+        // Handle structural synchronization if target matches internal function type references
+        const incomingParentId = res?.parentFileId || res?.data?.parentFileId || targetNode?.data?.fileId;
+        if (nodeType === "function" && incomingParentId) {
+          updatedSummaries[incomingParentId] = updatedSummaries[incomingParentId] || {
+            summary: "Parent workspace file holding this functional node implementation.",
+            complexity: incomingComplexity || "Low",
+            rawContent: incomingRawContent
+          };
+        }
+
+        return { summaries: updatedSummaries };
+      });
     } catch (err) {
-      console.error("Incremental extraction execution dropped:", err);
+      console.error("Failed extracting runtime code snippets:", err);
     } finally {
       set({ isInspectorLoading: false });
     }
