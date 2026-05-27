@@ -6,7 +6,9 @@ import { useParams } from "next/navigation";
 import { useVisualizerStore } from "@/store/use-visualizer-store";
 import { CodeCanvas } from "@/components/visualizer/code-canvas";
 import { CodeInspector } from "@/components/visualizer/code-inspector";
+import { ProposalReviewDrawer } from "@/components/visualizer/proposal-review-drawer";
 import { getUserWorkspaces } from "@/app/actions/get-user-workspaces";
+import { Clock, Loader2, GitPullRequest } from "lucide-react";
 
 // Import Refactored Components
 import { TopToolbar } from "@/components/visualizer/top-toolbar";
@@ -27,6 +29,7 @@ export default function DeepWorkspaceVisualizerPage() {
   const {
     nodes, edges, summaries, isPending, selectedNode, selectedFile, metricsOverlayMode, isActionPending,
     availableWorkspaces, activeWorkspace, setAvailableWorkspaces, setActiveWorkspace,
+    isProposalMode, userRole, startProposalSession, exitProposalSession, publishProposal, setUserRole,
     setSelectedNode, setSelectedFile, setMetricsOverlayMode, loadTopologyMapData, executeAIAnalysis, predictCodeChanges, resetStore,
   } = useVisualizerStore();
 
@@ -34,6 +37,7 @@ export default function DeepWorkspaceVisualizerPage() {
   const [sidebarWidth, setSidebarWidth] = useState(440); 
   const [inspectorWidth, setInspectorWidth] = useState(340); 
   const [workspaceDropdownOpen, setWorkspaceDropdownOpen] = useState(false);
+  const [isReviewBoardOpen, setIsReviewBoardOpen] = useState(false);
   
   const isResizingLeft = useRef(false);
   const isResizingRight = useRef(false);
@@ -50,7 +54,7 @@ export default function DeepWorkspaceVisualizerPage() {
 
   const activeNodeId = selectedNode ? String(selectedNode.id || selectedNode._id) : "";
 
-  // Synchronize initial workspaces
+  // Synchronize initial workspaces & configure user permissions baseline
   useEffect(() => {
     async function synchronizeWorkspaces() {
       try {
@@ -59,6 +63,10 @@ export default function DeepWorkspaceVisualizerPage() {
           setAvailableWorkspaces(payload.workspaces);
           const defaultSpace = payload.workspaces.find(w => w.type === "PERSONAL") || payload.workspaces[0];
           setActiveWorkspace(defaultSpace);
+          
+          // Map default access privileges dynamically
+          const assignedRole = defaultSpace.type === "ORGANIZATION" ? (defaultSpace.role || "VIEWER") : "ADMIN";
+          setUserRole(assignedRole as any);
         }
       } catch (err) {
         console.error("Workspace configuration mismatch:", err);
@@ -154,6 +162,13 @@ export default function DeepWorkspaceVisualizerPage() {
 
   const handleCodeWorkspaceInput = (e: React.FormEvent<HTMLTextAreaElement>) => {
     const freshValue = e.currentTarget.value;
+    
+    // SAFETY TEAM SEGREGATION GUARD
+    if (activeWorkspace?.type === "ORGANIZATION") {
+      if (userRole === "VIEWER") return; // Read-only view lockout
+      if (!isProposalMode) startProposalSession();
+    }
+
     setEditableCodeString(freshValue);
     const currentTabNode = nodes.find(n => String(n.id || n._id) === String(activeTabId));
     if (currentTabNode) currentTabNode.content = freshValue; 
@@ -199,7 +214,11 @@ export default function DeepWorkspaceVisualizerPage() {
         setWorkspaceDropdownOpen={setWorkspaceDropdownOpen}
         activeWorkspace={activeWorkspace}
         availableWorkspaces={availableWorkspaces}
-        setActiveWorkspace={setActiveWorkspace}
+        setActiveWorkspace={(ws) => {
+          setActiveWorkspace(ws);
+          const nextRole = ws?.type === "ORGANIZATION" ? (ws.role || "VIEWER") : "ADMIN";
+          setUserRole(nextRole as any);
+        }}
         onWorkspaceChange={() => playgroundId && loadTopologyMapData(playgroundId)}
         metricsOverlayMode={metricsOverlayMode}
         setMetricsOverlayMode={setMetricsOverlayMode}
@@ -213,6 +232,31 @@ export default function DeepWorkspaceVisualizerPage() {
         executeAIAnalysis={() => executeAIAnalysis(playgroundId)}
         isPending={isPending}
       />
+
+      {/* DETACHED DRAFT PROPOSAL BANNER FOR SHARED ORGANIZATIONAL LAYOUTS */}
+      {isProposalMode && (
+        <div className="bg-amber-600/10 border-b border-amber-500/20 h-8 px-4 flex items-center justify-between shrink-0 animate-in slide-in-from-top-1 duration-100 z-30">
+          <span className="text-[10px] font-mono text-amber-400 flex items-center gap-1.5">
+            <Clock size={11} className="animate-pulse" /> You are modifying a layout proposal draft. Live infrastructure connections will not adjust until finalized.
+          </span>
+          <div className="flex items-center gap-2 font-mono text-[10px]">
+            <button 
+              onClick={() => exitProposalSession(playgroundId)}
+              className="text-zinc-400 hover:text-zinc-200 h-5 px-2 hover:bg-zinc-800 rounded transition-colors"
+            >
+              Discard Draft
+            </button>
+            <button 
+              onClick={() => publishProposal(playgroundId)}
+              disabled={isActionPending}
+              className="bg-amber-600 hover:bg-amber-700 text-white font-bold h-5 px-2.5 rounded transition-colors flex items-center gap-1 shadow-md"
+            >
+              {isActionPending ? <Loader2 size={9} className="animate-spin" /> : null}
+              Submit Proposal for Review
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex-1 flex relative overflow-hidden w-full bg-zinc-900">
         
@@ -231,6 +275,18 @@ export default function DeepWorkspaceVisualizerPage() {
         )}
 
         <div className="flex-1 h-full p-3 overflow-hidden min-w-[300px] relative bg-zinc-900/50">
+          
+          {/* FLOATING TEAM OVERLAYS BUTTON */}
+          {activeWorkspace?.type === "ORGANIZATION" && (
+            <button 
+              onClick={() => setIsReviewBoardOpen(true)}
+              className="absolute top-4 right-4 z-20 h-7 px-2.5 bg-zinc-950 border border-zinc-800 hover:border-zinc-700 rounded-md font-mono text-[10px] text-zinc-300 flex items-center gap-1.5 shadow-xl transition-all"
+            >
+              <GitPullRequest size={11} className="text-amber-400" />
+              Review Active Branch Proposals
+            </button>
+          )}
+
           <CodeCanvas 
             nodes={nodes} 
             edges={edges} 
@@ -264,6 +320,16 @@ export default function DeepWorkspaceVisualizerPage() {
           <CodeInspector node={selectedNode} summary={summaries?.[selectedNode?.id || selectedNode?._id]} onClose={() => { setSelectedNode(null); setSelectedFile(null); }} />
         </div>
       </div>
+
+      {/* COLLABORATIVE REVIEW BOARD PANEL */}
+      <ProposalReviewDrawer 
+        playgroundId={playgroundId}
+        isOpen={isReviewBoardOpen}
+        onClose={() => setIsReviewBoardOpen(false)}
+        onProposalMerged={() => {
+          loadTopologyMapData(playgroundId);
+        }}
+      />
     </div>
   );
 }

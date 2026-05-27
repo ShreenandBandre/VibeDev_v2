@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { getRepositoryTopology } from "@/app/actions/get-visualizer-data";
 import { analyzeRepositoryArchitecture } from "@/app/actions/visualizer-engine";
 import { generateSingleFileSummary, executeContextualAIQuery } from "@/app/actions/get-file-summary";
+import { createTeamProposal } from "@/app/actions/proposals";
 
 interface NodeSummary {
   summary: string;
@@ -45,10 +46,13 @@ interface VisualizerState {
   error: string | null;
   pollingIntervalId: NodeJS.Timeout | null;
 
-  // NEW: Multi-Tenant Workspace Presence Channels
+  // Multi-Tenant Workspace Presence Channels & Team Separation State
   availableWorkspaces: WorkspaceInfo[];
   activeWorkspace: WorkspaceInfo | null;
   multiplayerCursors: Record<string, { x: number; y: number; name: string; color: string }>;
+  userRole: "VIEWER" | "CONTRIBUTOR" | "ADMIN";
+  isProposalMode: boolean;
+  hasUnsavedProposalChanges: boolean;
 
   setSelectedNode: (node: any | null) => void;
   setSelectedFile: (file: any | null) => void;
@@ -62,9 +66,12 @@ interface VisualizerState {
   stopPollingStatus: () => void;
   resetStore: () => void;
 
-  // NEW ACTIONS
   setAvailableWorkspaces: (workspaces: WorkspaceInfo[]) => void;
   setActiveWorkspace: (workspace: WorkspaceInfo | null) => void;
+  setUserRole: (role: "VIEWER" | "CONTRIBUTOR" | "ADMIN") => void;
+  startProposalSession: () => void;
+  exitProposalSession: (playgroundId: string) => void;
+  publishProposal: (playgroundId: string) => Promise<void>;
 }
 
 export const useVisualizerStore = create<VisualizerState>((set, get) => ({
@@ -83,16 +90,44 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
   error: null,
   pollingIntervalId: null,
 
-  // Default Init states
+  // Default Tenant & Separation Config States
   availableWorkspaces: [],
   activeWorkspace: null,
   multiplayerCursors: {},
+  userRole: "VIEWER",
+  isProposalMode: false,
+  hasUnsavedProposalChanges: false,
 
   setSelectedNode: (node) => set({ selectedNode: node }),
   setSelectedFile: (file) => set({ selectedFile: file }),
   setMetricsOverlayMode: (mode) => set({ metricsOverlayMode: mode }),
   setAvailableWorkspaces: (workspaces) => set({ availableWorkspaces: workspaces }),
   setActiveWorkspace: (workspace) => set({ activeWorkspace: workspace }),
+  setUserRole: (role) => set({ userRole: role }),
+
+  startProposalSession: () => {
+    if (get().isProposalMode) return;
+    set({ isProposalMode: true, hasUnsavedProposalChanges: true });
+  },
+
+  exitProposalSession: (playgroundId) => {
+    set({ isProposalMode: false, hasUnsavedProposalChanges: false });
+    if (playgroundId) get().loadTopologyMapData(playgroundId);
+  },
+
+  publishProposal: async (playgroundId) => {
+    set({ isActionPending: true });
+    try {
+      // API request simulation for structural branch pull proposals
+      console.log("Publishing local layout architecture modification matrix directly to team:", get().nodes);
+      set({ hasUnsavedProposalChanges: false, isProposalMode: false });
+      if (playgroundId) await get().loadTopologyMapData(playgroundId);
+    } catch (err: any) {
+      console.error("Proposal baseline failed to submit:", err);
+    } finally {
+      set({ isActionPending: false });
+    }
+  },
 
   loadTopologyMapData: async (playgroundId: string) => {
     if (!playgroundId) return;
@@ -289,6 +324,31 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
   resetStore: () => {
     const id = get().pollingIntervalId;
     if (id) clearInterval(id);
-    set({ status: "PENDING", nodes: [], edges: [], summaries: {}, chatHistories: {}, metricsOverlayMode: "none", selectedNode: null, selectedFile: null, pollingIntervalId: null, isPending: false, isInspectorLoading: false, isActionPending: false });
+    set({ status: "PENDING", nodes: [], edges: [], summaries: {}, chatHistories: {}, metricsOverlayMode: "none", selectedNode: null, selectedFile: null, pollingIntervalId: null, isPending: false, isInspectorLoading: false, isActionPending: false, isProposalMode: false, hasUnsavedProposalChanges: false });
   },
+
+  publishProposal: async (playgroundId: string) => {
+  set({ isActionPending: true });
+  try {
+    const response = await createTeamProposal({
+      playgroundId,
+      title: `Proposal Update - Refactored Topology`,
+      description: "Automated microservices dependency decoupling iteration sequence.",
+      nodes: get().nodes,
+      edges: get().edges
+    });
+    
+    if (response.success) {
+      set({ hasUnsavedProposalChanges: false, isProposalMode: false });
+      await get().loadTopologyMapData(playgroundId);
+    } else {
+      set({ error: response.error });
+    }
+  } catch (err: any) {
+    console.error("Proposal baseline failed to submit:", err);
+    set({ error: err.message });
+  } finally {
+    set({ isActionPending: false });
+  }
+},
 }));

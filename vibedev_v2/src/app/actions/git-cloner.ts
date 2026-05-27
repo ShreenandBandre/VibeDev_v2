@@ -68,14 +68,15 @@ export async function cloneGitHubRepository(
     const rawTreeElements = treeData.tree || [];
 
     const playground = await prisma.playground.create({
-      data: {
-        title: repo,
-        description: `GitHub Source: ${repoUrl}`,
-        template: Templates.REACT, 
-        userId: session.user.id,
-        organizationId: workspaceType === "team" ? activeOrgId : null,
-      },
-    });
+  data: {
+    title: repo,
+    description: `GitHub Source: ${repoUrl}`,
+    template: Templates.REACT,
+    userId: session.user.id,
+    // Ensure this matches your Prisma Schema field name (e.g., organizationId)
+    organizationId: workspaceType === "team" ? activeOrgId : null, 
+  },
+});
 
     const filteredTree = rawTreeElements.filter((file: any) => {
       const skippedExtensions = [".png", ".jpg", ".jpeg", ".ico", ".woff", ".woff2", ".mp4", "package-lock.json", ".git"];

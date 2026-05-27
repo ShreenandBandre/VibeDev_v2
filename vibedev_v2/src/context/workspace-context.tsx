@@ -1,39 +1,63 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 
 type WorkspaceType = "personal" | "team";
 
 interface WorkspaceContextProps {
   currentWorkspaceType: WorkspaceType;
-  activeOrgId: string | null; // null represents personal space
-  setActiveWorkspace: (type: WorkspaceType, orgId: string | null) => void;
+  activeOrgId: string | null;
+  setActiveWorkspace: (
+    type: WorkspaceType,
+    orgId: string | null
+  ) => void;
 }
 
-const WorkspaceContext = createContext<WorkspaceContextProps | undefined>(undefined);
+const WorkspaceContext = createContext<
+  WorkspaceContextProps | undefined
+>(undefined);
 
-export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
-  const [currentWorkspaceType, setCurrentWorkspaceType] = useState<WorkspaceType>("personal");
-  const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
+export function WorkspaceProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const [currentWorkspaceType, setCurrentWorkspaceType] =
+    useState<WorkspaceType>("personal");
+
+  const [activeOrgId, setActiveOrgId] =
+    useState<string | null>(null);
+
   const router = useRouter();
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
-  const setActiveWorkspace = (type: WorkspaceType, orgId: string | null) => {
-    setCurrentWorkspaceType(type);
-    setActiveOrgId(orgId);
-    
-    // Programmatically push to dashboard root with clear search params or clean slugging
-    if (type === "team" && orgId) {
-      router.push(`/dashboard?workspace=team&orgId=${orgId}`);
-    } else {
-      router.push(`/dashboard?workspace=personal`);
-    }
-  };
+  const setActiveWorkspace = useCallback(
+    (type: WorkspaceType, orgId: string | null) => {
+      setCurrentWorkspaceType(type);
+      setActiveOrgId(orgId);
 
-  // Sync state if initial page loads with query params
+      // Navigate accordingly
+      if (type === "team" && orgId) {
+        router.push(
+          `/dashboard?workspace=team&orgId=${orgId}`
+        );
+      } else {
+        router.push("/dashboard");
+      }
+    },
+    [router]
+  );
+
+  // Sync workspace state from URL
   useEffect(() => {
-    const searchParams = new URLSearchParams(window.location.search);
     const mode = searchParams.get("workspace");
     const org = searchParams.get("orgId");
 
@@ -44,10 +68,16 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
       setCurrentWorkspaceType("personal");
       setActiveOrgId(null);
     }
-  }, [pathname]);
+  }, [pathname, searchParams]);
 
   return (
-    <WorkspaceContext.Provider value={{ currentWorkspaceType, activeOrgId, setActiveWorkspace }}>
+    <WorkspaceContext.Provider
+      value={{
+        currentWorkspaceType,
+        activeOrgId,
+        setActiveWorkspace,
+      }}
+    >
       {children}
     </WorkspaceContext.Provider>
   );
@@ -55,6 +85,12 @@ export function WorkspaceProvider({ children }: { children: React.ReactNode }) {
 
 export function useWorkspace() {
   const context = useContext(WorkspaceContext);
-  if (!context) throw new Error("useWorkspace must be used within a WorkspaceProvider");
+
+  if (!context) {
+    throw new Error(
+      "useWorkspace must be used within a WorkspaceProvider"
+    );
+  }
+
   return context;
 }

@@ -1,13 +1,17 @@
-// filepath: /src/components/visualizer/workspace-dropdown.tsx
 "use client";
 
 import React from "react";
-import { ChevronDown, Building2, UserCheck, Layers } from "lucide-react";
+import {
+  ChevronDown,
+  Building2,
+  UserCheck,
+  Layers,
+} from "lucide-react";
 
 interface Workspace {
   id: string;
   name: string;
-  type: string;
+  type: string; // "PERSONAL" | "ORGANIZATION"
 }
 
 interface WorkspaceDropdownProps {
@@ -15,7 +19,7 @@ interface WorkspaceDropdownProps {
   setIsOpen: React.Dispatch<React.SetStateAction<boolean>>;
   activeWorkspace: Workspace | null;
   availableWorkspaces: Workspace[];
-  setActiveWorkspace: (ws: Workspace) => void;
+  setActiveWorkspace: (workspace: Workspace) => void;
   onWorkspaceChange: () => void;
 }
 
@@ -27,34 +31,117 @@ export function WorkspaceDropdown({
   setActiveWorkspace,
   onWorkspaceChange,
 }: WorkspaceDropdownProps) {
+  // Group workspaces
+  const personal = availableWorkspaces.filter(
+    (workspace) => workspace.type !== "ORGANIZATION"
+  );
+
+  const organizations = availableWorkspaces.filter(
+    (workspace) => workspace.type === "ORGANIZATION"
+  );
+
+  const handleWorkspaceSelect = (workspace: Workspace) => {
+    setActiveWorkspace(workspace);
+    setIsOpen(false);
+    onWorkspaceChange();
+  };
+
   return (
     <div className="relative">
-      <button 
-        onClick={() => setIsOpen(p => !p)}
-        className="flex items-center gap-2 h-7 px-2.5 bg-zinc-800/40 border border-zinc-700 hover:bg-zinc-800 rounded-md text-[10px] font-mono transition-all text-zinc-300 hover:text-white"
+      {/* Trigger */}
+      <button
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="flex items-center gap-2 h-8 px-3 bg-zinc-800/50 border border-zinc-700 hover:bg-zinc-800 rounded-md text-xs font-mono transition-all text-zinc-300 hover:text-white"
       >
-        {activeWorkspace?.type === "ORGANIZATION" ? <Building2 size={11} className="text-indigo-400"/> : <UserCheck size={11} className="text-emerald-400"/>}
-        <span className="font-semibold max-w-[120px] truncate">{activeWorkspace?.name || "Personal Sandboxes"}</span>
-        <ChevronDown size={10} className="text-zinc-500" />
+        {activeWorkspace?.type === "ORGANIZATION" ? (
+          <Building2
+            size={12}
+            className="text-indigo-400 shrink-0"
+          />
+        ) : (
+          <UserCheck
+            size={12}
+            className="text-emerald-400 shrink-0"
+          />
+        )}
+
+        <span className="font-semibold max-w-[140px] truncate">
+          {activeWorkspace?.name || "Personal Sandboxes"}
+        </span>
+
+        <ChevronDown
+          size={12}
+          className={`text-zinc-500 transition-transform ${
+            isOpen ? "rotate-180" : ""
+          }`}
+        />
       </button>
 
+      {/* Dropdown */}
       {isOpen && (
-        <div className="absolute top-8 left-0 w-52 bg-zinc-800 border border-zinc-700 rounded-lg shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in-50 duration-100">
-          <div className="px-2.5 py-1 text-[9px] font-mono uppercase text-zinc-500 tracking-wider font-bold border-b border-zinc-700/60 bg-zinc-900/20">Context Workspaces</div>
-          {availableWorkspaces?.map((ws) => (
+        <div className="absolute top-10 left-0 w-56 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-50 py-1 overflow-hidden animate-in fade-in-50 zoom-in-95 duration-100">
+          
+          {/* Personal Section */}
+          <div className="px-3 py-2 text-[10px] font-mono uppercase tracking-wider text-zinc-500 font-bold">
+            Personal
+          </div>
+
+          {personal.map((workspace) => (
             <button
-              key={ws.id}
-              onClick={() => {
-                setActiveWorkspace(ws);
-                setIsOpen(false);
-                onWorkspaceChange();
-              }}
-              className={`w-full text-left px-3 py-2 text-[11px] font-mono flex items-center gap-2 transition-colors ${activeWorkspace?.id === ws.id ? "bg-indigo-600/10 text-indigo-400 font-bold" : "text-zinc-400 hover:bg-zinc-700/60 hover:text-zinc-100"}`}
+              key={workspace.id}
+              onClick={() =>
+                handleWorkspaceSelect(workspace)
+              }
+              className={`w-full text-left px-3 py-2.5 text-xs font-mono flex items-center gap-2 transition-colors ${
+                activeWorkspace?.id === workspace.id
+                  ? "bg-emerald-500/10 text-emerald-400 font-semibold"
+                  : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              }`}
             >
-              {ws.type === "ORGANIZATION" ? <Layers size={11} className="text-indigo-400" /> : <UserCheck size={11} className="text-emerald-400" />}
-              <span className="truncate">{ws.name}</span>
+              <UserCheck
+                size={12}
+                className="text-emerald-400 shrink-0"
+              />
+
+              <span className="truncate">
+                {workspace.name}
+              </span>
             </button>
           ))}
+
+          {/* Organization Section */}
+          {organizations.length > 0 && (
+            <>
+              <div className="mt-1 border-t border-zinc-800" />
+
+              <div className="px-3 py-2 text-[10px] font-mono uppercase tracking-wider text-zinc-500 font-bold">
+                Organizations
+              </div>
+
+              {organizations.map((workspace) => (
+                <button
+                  key={workspace.id}
+                  onClick={() =>
+                    handleWorkspaceSelect(workspace)
+                  }
+                  className={`w-full text-left px-3 py-2.5 text-xs font-mono flex items-center gap-2 transition-colors ${
+                    activeWorkspace?.id === workspace.id
+                      ? "bg-indigo-500/10 text-indigo-400 font-semibold"
+                      : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+                  }`}
+                >
+                  <Layers
+                    size={12}
+                    className="text-indigo-400 shrink-0"
+                  />
+
+                  <span className="truncate">
+                    {workspace.name}
+                  </span>
+                </button>
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>

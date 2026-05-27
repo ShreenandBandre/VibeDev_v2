@@ -20,19 +20,19 @@ enum UserRole {
 }
 
 model User {
-  id            String        @id @default(cuid()) @map("_id")
-  name          String?
-  email         String        @unique
-  emailVerified DateTime?     @map("email_verified")
-  image         String?
-  role          UserRole      @default(USER)
-  accounts      Account[]
-  playgrounds   Playground[]
-  myPlayground  StarMark[]
-  chatMessages  ChatMessage[]
-  activityLogs  ActivityLog[]
-
-  orgMembers    OrgMember[]
+  id                  String                @id @default(cuid()) @map("_id")
+  name                String?
+  email               String                @unique
+  emailVerified       DateTime?             @map("email_verified")
+  image               String?
+  role                UserRole              @default(USER)
+  accounts            Account[]
+  playgrounds         Playground[]
+  myPlayground        StarMark[]
+  chatMessages        ChatMessage[]
+  activityLogs        ActivityLog[]
+  orgMembers          OrgMember[]
+  submittedProposals  ArchitectureProposal[] // 🚀 Relation link to tracking submitted proposals
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -84,7 +84,7 @@ model Playground {
   title          String
   description    String?
   template       Templates @default(REACT)
-  spaceType      SpaceType @default(PERSONAL) @map("space_type") // 🚀 ISOLATION LAYER BOUNDARY
+  spaceType      SpaceType @default(PERSONAL) @map("space_type")
   userId         String    @map("user_id")
   user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -95,6 +95,7 @@ model Playground {
   Starmark      StarMark[]
 
   repositoryMap RepositoryMap?
+  proposals     ArchitectureProposal[] // 🚀 Branching sandbox alternatives linked to this blueprint
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -111,8 +112,8 @@ model TemplateFile {
   content  String  @default("")
   isFolder Boolean @default(false)
 
-  parentId String?       @map("parent_id")
-  parent   TemplateFile? @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  parentId String?        @map("parent_id")
+  parent   TemplateFile?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children TemplateFile[] @relation("FolderHierarchy")
 
   createdAt DateTime @default(now())
@@ -166,17 +167,17 @@ model AIChatSession {
 }
 
 model DbMessage {
-  id          String         @id @default(cuid()) @map("_id")
-  sessionId   String         @map("session_id")
-  session     AIChatSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  role        String 
-  content     String
-  type        String         @default("chat")
-  modelUsed   String?        @map("model_used")
-  tokensUsed  Int?           @map("tokens_used")
+  id           String         @id @default(cuid()) @map("_id")
+  sessionId    String         @map("session_id")
+  session      AIChatSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role         String 
+  content      String
+  type         String         @default("chat")
+  modelUsed    String?        @map("model_used")
+  tokensUsed   Int?           @map("tokens_used")
   attachments DbAttachment[]
   suggestions DbSuggestion[]
-  createdAt   DateTime       @default(now())
+  createdAt    DateTime       @default(now())
 }
 
 model DbAttachment {
@@ -222,6 +223,41 @@ model RepositoryMap {
 }
 
 // ==========================================
+// NEW: TEAM ARCHITECTURE REVIEW LEVERAGE
+// ==========================================
+
+enum ProposalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  MERGED
+}
+
+model ArchitectureProposal {
+  id           String         @id @default(cuid()) @map("_id")
+  title        String
+  description  String?
+  status       ProposalStatus @default(PENDING)
+  
+  // Topology matrix code/node adjustments snapshot
+  proposalNodes Json
+  proposalEdges Json
+
+  playgroundId String         @map("playground_id")
+  playground   Playground     @relation(fields: [playgroundId], references: [id], onDelete: Cascade)
+  
+  creatorId    String         @map("creator_id")
+  creator      User           @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([playgroundId])
+  @@index([creatorId])
+  @@map("architecture_proposals")
+}
+
+// ==========================================
 // WORKSPACE MULTI-TENANCY & TEAM MODELS
 // ==========================================
 
@@ -247,7 +283,7 @@ model OrgMember {
   organizationId String       @map("organization_id")
   userId         String       @map("user_id")
   role           String       @default("MEMBER")
-  githubUsername String?      @map("github_username") // 🚀 Added for Git Blame parsing integrations
+  githubUsername String?      @map("github_username")
 
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -1,4 +1,3 @@
-// filepath: /src/app/actions/get-user-workspaces.ts
 "use server";
 
 import { prisma } from "@/lib/prisma"; 
@@ -12,53 +11,59 @@ export async function getUserWorkspaces() {
 
   const user = await prisma.user.findUnique({
     where: { email: session.user.email },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      image: true,
-    },
+    select: { id: true, name: true, email: true, image: true },
   });
 
   if (!user) throw new Error("User record mapping missing");
 
-  // 1. Fetch official enterprise team workspaces
+  // Fetch organizational teams
   const memberships = await prisma.orgMember.findMany({
     where: { userId: user.id },
     include: {
       organization: {
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          imageUrl: true,
-        },
+        select: { id: true, name: true, slug: true, imageUrl: true },
       },
     },
   });
 
-  const explicitOrganizations = memberships.map((m) => ({
+  let explicitOrganizations = memberships.map((m) => ({
     id: m.organization.id,
     name: m.organization.name,
     slug: m.organization.slug,
     imageUrl: m.organization.imageUrl,
-    type: "ORGANIZATION",
-    role: m.role
+    type: "ORGANIZATION", // Consistent string for UI checks
+    role: m.role || "VIEWER"
   }));
 
-  // 2. Synthesize an implicit Personal Space payload to prevent dashboard breakage
+  // Mock Injection
+  if (explicitOrganizations.length === 0) {
+    explicitOrganizations = [
+      {
+        id: "mock-vibedev-org-id",
+        name: "VibeDev Enterprise Core",
+        slug: "vibedev-enterprise",
+        imageUrl: null,
+        type: "ORGANIZATION",
+        role: "VIEWER"
+      }
+    ];
+  }
+
   const personalWorkspace = {
     id: `personal-${user.id}`,
     name: "Personal Sandboxes",
     slug: "personal-workspace",
     imageUrl: user.image || null,
-    type: "PERSONAL",
+    type: "PERSONAL", // Consistent string for UI checks
     role: "ADMIN"
   };
 
   return {
     user,
-    // Unified workspace selection stream
+    groupedWorkspaces: {
+      personal: personalWorkspace,
+      organizations: explicitOrganizations,
+    },
     workspaces: [personalWorkspace, ...explicitOrganizations],
   };
 }
