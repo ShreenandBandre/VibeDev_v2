@@ -19,9 +19,8 @@ export async function generateSingleFileSummary(
     let targetFile = null;
     let targetFunctionName = "";
 
-    // 1. Resolve where the source code text resides
+    // 1. Resolve source code
     if (nodeType === "function") {
-      // Find the map entry to learn what function name and file container matches this nodeId
       const repoMap = await prisma.repositoryMap.findUnique({
         where: { playgroundId }
       });
@@ -30,56 +29,59 @@ export async function generateSingleFileSummary(
       const functionNode = nodes.find(n => (n.id === nodeId || n._id === nodeId));
 
       if (!functionNode) {
-        return { success: false, error: "Target function profile element missing from layout map context." };
+        return { success: false, error: "Target function missing from layout map." };
       }
 
       targetFunctionName = functionNode.label || functionNode.name;
-      
-      // Look up code text via the file identifier backlink map
-      const fileContainerId = functionNode.parentId || functionNode.fileId;
+      const fileContainerId = functionNode.parentId;
       if (fileContainerId) {
         targetFile = await prisma.templateFile.findUnique({
           where: { id: fileContainerId }
         });
       }
     } else {
-      // Pure File analysis string lookup
       targetFile = await prisma.templateFile.findUnique({
         where: { id: nodeId },
       });
     }
 
     if (!targetFile) {
-      return { success: false, error: "Unable to extract raw file source code text stream to analyze." };
+      return { success: false, error: "Unable to extract raw file source code." };
     }
 
-    // 2. Prompt assembly rules using the new Groq JSON matching requirement
+    // 2. Optimization: Truncate content to 3500 chars to avoid hitting model context limits
+    const sourceContent = targetFile.content.length > 3500 
+      ? targetFile.content.slice(0, 3500) + "\n...[truncated]" 
+      : targetFile.content;
+
+    // 3. Optimized Prompt Assembly
     const systemPrompt = nodeType === "function"
-      ? `You are an expert architect. Read the provided file contents and focus EXCLUSIVELY on analyzing the method/function named "${targetFunctionName}". Provide a concise, 2-sentence summary detailing what this specific logic routine manages. Also classify its operational complexity as 'Low', 'Medium', or 'High'. You must output your response in a raw valid RFC-compliant JSON object matching this structure: { "summary": "...", "complexity": "..." }`
-      : `You are an expert architect. Read the provided file contents and provide a concise, 2-sentence summary of what this code file handles. Also classify its complexity as 'Low', 'Medium', or 'High'. You must output your response in a raw valid RFC-compliant JSON object matching this structure: { "summary": "...", "complexity": "..." }`;
+      ? `You are a senior architect. Analyze function "${targetFunctionName}". Provide a 2-sentence summary and classification (Low/Medium/High complexity). Output ONLY valid JSON: { "summary": string, "complexity": string }`
+      : `You are a senior architect. Analyze the provided file. Provide a 2-sentence summary and classification (Low/Medium/High complexity). Output ONLY valid JSON: { "summary": string, "complexity": string }`;
 
     const completion = await groq.chat.completions.create({
       model: "llama-3.1-8b-instant",
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: `Context Asset: ${targetFile.name}\nSource Code:\n${targetFile.content}` }
+        { role: "user", content: `File: ${targetFile.name}\n\nCode:\n${sourceContent}` }
       ],
-      temperature: 0.2,
+      temperature: 0.1, // Lowered for more deterministic output
       response_format: { type: "json_object" }
     });
 
-    const aiResponse = JSON.parse(completion.choices[0]?.message?.content || "{}");
+    const rawContent = completion.choices[0]?.message?.content || "{}";
+    const aiResponse = JSON.parse(rawContent);
 
-    // 3. Cache structural summary to RepositoryMap block object mapping key
+    // 4. Cache summary
     const existingMap = await prisma.repositoryMap.findUnique({
       where: { playgroundId }
     });
 
     if (existingMap) {
       const updatedSummaries = {
-        ...(existingMap.summaries as Record<string, any> || {}),
+        ...(typeof existingMap.summaries === 'object' ? (existingMap.summaries as any) : {}),
         [nodeId]: {
-          summary: aiResponse.summary || "No description compiled.",
+          summary: aiResponse.summary || "No description provided.",
           complexity: aiResponse.complexity || "Medium"
         }
       };
@@ -97,7 +99,7 @@ export async function generateSingleFileSummary(
     };
 
   } catch (error: any) {
-    console.error("Incremental context generation dropped:", error);
-    return { success: false, error: error.message };
+    console.error("AI Summary generation error:", error);
+    return { success: false, error: error.message || "Failed to process AI request." };
   }
 }

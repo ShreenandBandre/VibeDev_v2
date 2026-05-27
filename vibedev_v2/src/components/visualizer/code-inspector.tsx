@@ -1,91 +1,61 @@
+// filepath: /components/visualizer/code-inspector.tsx
 "use client";
 
 import React from "react";
+import { X, FileText, BarChart2, Loader2, Sparkles } from "lucide-react";
 import { useVisualizerStore } from "@/store/use-visualizer-store";
-import { Loader2, X, FileText, BarChart2 } from "lucide-react";
 
-interface InspectorProps {
-  node: any;
-  summary: any;
-  onClose: () => void;
-}
-
-export function CodeInspector({ node, summary, onClose }: InspectorProps) {
-  // 🚀 Connect the new loading state we added to the Zustand store
+export function CodeInspector({ node, summary, onClose }: any) {
   const isInspectorLoading = useVisualizerStore((state) => state.isInspectorLoading);
 
-  if (!node) {
-    return (
-      <div className="w-80 h-[650px] bg-zinc-950 border border-zinc-900 rounded-2xl p-4 flex flex-col items-center justify-center text-center text-zinc-500 text-xs italic">
-        Select a workspace asset to inspect its architecture tree profile.
-      </div>
-    );
-  }
+  // SAFE GUARD: If node is null, do not render
+  if (!node) return null;
 
   return (
-    <div className="w-80 h-[650px] bg-zinc-950 border border-zinc-900 rounded-2xl p-4 flex flex-col justify-between text-zinc-300">
-      <div>
-        {/* HEADER */}
-        <div className="flex items-center justify-between border-b border-zinc-900 pb-3 mb-4">
-          <div className="flex items-center gap-2 truncate">
-            <FileText size={14} className="text-indigo-400 flex-shrink-0" />
-            <h3 className="text-xs font-bold text-white truncate">{node.label}</h3>
-          </div>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-300 transition-colors">
-            <X size={14} />
-          </button>
-        </div>
-
-        {/* AI ARCHITECT OBSERVATIONS PANEL */}
-        <div className="space-y-4">
-          <div className="bg-zinc-900/40 border border-zinc-900 p-3 rounded-xl">
-            <h4 className="text-[11px] font-semibold text-indigo-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-              ✨ AI Architect Observations
-            </h4>
-
-            {node.type === "folder" ? (
-              <p className="text-[11px] text-zinc-500 italic leading-normal">
-                Folder directory groupings manage structure and namespaces. They do not hold explicit source code parameters to analyze directly.
-              </p>
-            ) : isInspectorLoading ? (
-              /* 🌀 Renders your loading spinner when fetching the Groq summary */
-              <div className="flex flex-col items-center justify-center py-6 gap-2">
-                <Loader2 size={16} className="animate-spin text-indigo-500" />
-                <p className="text-[10px] text-zinc-500 animate-pulse font-mono">Decompressing source lines...</p>
-              </div>
-            ) : summary?.summary ? (
-              /* ✅ Renders the text once loaded */
-              <p className="text-xs text-zinc-300 leading-relaxed">
-                {summary.summary}
-              </p>
-            ) : (
-              <p className="text-[11px] text-zinc-500 italic leading-normal">
-                No data gathered yet. Click this code block to trigger an on-demand structural evaluation.
-              </p>
-            )}
-          </div>
-
-          {/* META PARAMETERS (Only display if it's a file and summary is loaded) */}
-          {node.type === "file" && !isInspectorLoading && summary?.complexity && (
-            <div className="bg-zinc-900/20 border border-zinc-900/60 p-3 rounded-xl flex items-center justify-between text-[11px]">
-              <span className="text-zinc-500 flex items-center gap-1">
-                <BarChart2 size={12} /> Code Complexity:
-              </span>
-              <span className={`font-mono font-bold px-2 py-0.5 rounded text-[10px] ${
-                summary.complexity === "High" ? "bg-red-500/10 text-red-400 border border-red-900/30" :
-                summary.complexity === "Medium" ? "bg-amber-500/10 text-amber-400 border border-amber-900/30" :
-                "bg-green-500/10 text-green-400 border border-green-900/30"
-              }`}>
-                {summary.complexity}
-              </span>
-            </div>
-          )}
-        </div>
+    <div className="h-full bg-zinc-950 border-l border-zinc-900 flex flex-col shadow-2xl animate-in slide-in-from-right duration-300">
+      <div className="flex justify-between items-center p-6 border-b border-zinc-900">
+        <h2 className="text-sm font-bold text-white flex items-center gap-2">
+          <FileText size={16} className="text-indigo-500" />
+          Inspector
+        </h2>
+        <button onClick={onClose} className="p-1 hover:bg-zinc-800 rounded transition-colors">
+          <X size={16} className="text-zinc-400" />
+        </button>
       </div>
 
-      {/* FOOTER */}
-      <div className="text-[10px] font-mono text-zinc-600 pt-2 border-t border-zinc-900 text-right uppercase tracking-widest">
-        {node.type} inspect mode
+      <div className="flex-1 overflow-y-auto p-6 space-y-8">
+        {isInspectorLoading ? (
+          <div className="flex flex-col items-center justify-center py-20 gap-3">
+            <Loader2 size={24} className="animate-spin text-indigo-500" />
+            <p className="text-xs text-zinc-500 font-mono">Analyzing structure...</p>
+          </div>
+        ) : (
+          <>
+            <div>
+              <h3 className="text-[10px] uppercase text-zinc-500 font-bold mb-2 tracking-widest">Asset</h3>
+              {/* SAFE ACCESS: node?.label */}
+              <p className="text-xs text-zinc-300 font-mono bg-zinc-900/50 p-2 rounded border border-zinc-800">{node?.label || "Unknown"}</p>
+            </div>
+            
+            <div>
+              <h3 className="text-[10px] uppercase text-zinc-500 font-bold mb-2 tracking-widest flex items-center gap-1">
+                <Sparkles size={10} className="text-indigo-400"/> Architect Observation
+              </h3>
+              <p className="text-xs text-zinc-400 leading-relaxed italic">{summary?.summary || "No insights generated."}</p>
+            </div>
+
+            <div className="flex items-center justify-between p-3 bg-zinc-900/40 rounded-lg border border-zinc-800">
+              <span className="text-[10px] text-zinc-400 flex items-center gap-1"><BarChart2 size={10}/> Complexity</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${summary?.complexity === 'High' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+                {summary?.complexity || "N/A"}
+              </span>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="p-4 border-t border-zinc-900 text-[10px] text-zinc-600 font-mono text-center uppercase tracking-widest">
+        {node?.type || "node"} trace
       </div>
     </div>
   );
