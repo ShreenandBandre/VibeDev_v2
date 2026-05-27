@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { TeamCollaborationHub } from "@/components/dashboard/TeamCollaborationHub";
 
 export default function DashboardPage() {
   const { currentWorkspaceType, activeOrgId } = useWorkspace();
@@ -99,6 +100,12 @@ export default function DashboardPage() {
           Manage your persistent code sandboxes and cloud clusters.
         </p>
       </div>
+
+      {currentWorkspaceType === "ORGANIZATION" && (
+  <div className="mb-10">
+    <TeamCollaborationHub />
+  </div>
+)}
 
       {/* 2. CORE ACTION ENTRY CARDS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

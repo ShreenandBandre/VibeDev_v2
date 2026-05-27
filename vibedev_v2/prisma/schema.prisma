@@ -262,18 +262,21 @@ model ArchitectureProposal {
 // ==========================================
 
 model Organization {
-  id           String        @id @default(cuid()) @map("_id")
+  id           String       @id @default(cuid()) @map("_id")
   name         String
-  slug         String        @unique
+  slug         String       @unique
   imageUrl     String?
-  ownerId      String        @map("owner_id")
+  ownerId      String       @map("owner_id")
+  
+  // ADD THIS LINE
+  githubOrgName String?     @map("github_org_name") 
   
   members      OrgMember[]
   playgrounds  Playground[] 
   activityLogs ActivityLog[]
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 
   @@map("organizations")
 }
