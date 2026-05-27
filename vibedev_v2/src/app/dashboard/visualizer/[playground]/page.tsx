@@ -37,9 +37,7 @@ export default function DeepWorkspaceVisualizerPage() {
   } = useVisualizerStore();
 
   useEffect(() => {
-    if (playgroundId) {
-      loadTopologyMapData(playgroundId);
-    }
+    if (playgroundId) loadTopologyMapData(playgroundId);
     return () => resetStore();
   }, [playgroundId]);
 
@@ -161,7 +159,6 @@ export default function DeepWorkspaceVisualizerPage() {
           <AlertTriangle size={12} />
           <span>System Trace Notice: {error}</span>
         </div>
-      )}
 
       {/* FULL LAYOUT VIEWER WINDOW AREA */}
       <div className="flex-1 mt-4 flex gap-4 items-stretch h-[calc(100vh-140px)] min-h-0 w-full relative">

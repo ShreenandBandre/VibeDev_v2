@@ -68,32 +68,36 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
   isPending: false,
   isInspectorLoading: false,
   selectedNode: null,
+  selectedFile: null,
   error: null,
   pollingIntervalId: null,
 
   setSelectedNode: (node) => set({ selectedNode: node }),
+  setSelectedFile: (file) => set({ selectedFile: file }),
 
   loadTopologyMapData: async (playgroundId: string) => {
     if (!playgroundId) return;
     try {
       const res = await getRepositoryTopology(playgroundId);
       if (res && res.success) {
+        // Prevent polling updates from wiping out active summaries in local UI state
+        const fallbackSummaries = Object.keys(res.summaries || {}).length > 0 
+          ? res.summaries 
+          : get().summaries;
+
         set({
           status: res.status || "PENDING",
           nodes: res.nodes || [],
           edges: res.edges || [],
-          summaries: res.summaries || {},
+          summaries: fallbackSummaries,
           error: null,
         });
-
-        if (res.status === "COMPLETED" || res.status === "FAILED") {
-          get().stopPollingStatus();
-        }
+        if (res.status === "COMPLETED" || res.status === "FAILED") get().stopPollingStatus();
       } else {
-        set({ error: res.error || "Failed reading repository metadata topology layout maps." });
+        set({ error: res.error || "Failed reading repository metadata." });
       }
     } catch (err: any) {
-      set({ error: err.message || "Network exception reading map frames." });
+      set({ error: err.message });
     } finally {
       set({ initialLoading: false });
     }
@@ -102,23 +106,19 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
   executeAIAnalysis: async (playgroundId: string) => {
     if (!playgroundId) return;
     set({ isPending: true, status: "ANALYZING", error: null });
-
     try {
       const res = await analyzeRepositoryArchitecture(playgroundId);
-      if (res && res.success) {
-        get().startPollingStatus(playgroundId);
-      } else {
-        set({ status: "FAILED", error: res.error || "Execution thread dropped by Groq client interface runtime." });
-        set({ isPending: false });
+      if (res && res.success) get().startPollingStatus(playgroundId);
+      else {
+        set({ status: "FAILED", error: res.error, isPending: false });
       }
     } catch (err: any) {
-      set({ status: "FAILED", error: err.message || "Unhandled operational runtime block hit." });
-      set({ isPending: false });
+      set({ status: "FAILED", error: err.message, isPending: false });
     }
   },
 
-  fetchNodeSummary: async (nodeId: string, playgroundId: string, nodeType: "file" | "function") => {
-    if (!nodeId || !playgroundId) return;
+  fetchNodeSummary: async (nodeId, playgroundId, nodeType) => {
+    const cleanId = String(nodeId);
     
     set({ isInspectorLoading: true });
     try {
@@ -163,39 +163,33 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
     }
   },
 
-  startPollingStatus: (playgroundId: string) => {
+  startPollingStatus: (playgroundId) => {
     if (get().pollingIntervalId) return;
-
-    const interval = setInterval(() => {
-      get().loadTopologyMapData(playgroundId);
-    }, 3000);
-
+    const interval = setInterval(() => get().loadTopologyMapData(playgroundId), 3000);
     set({ pollingIntervalId: interval });
   },
 
   stopPollingStatus: () => {
-    const intervalId = get().pollingIntervalId;
-    if (intervalId) {
-      clearInterval(intervalId);
-      set({ pollingIntervalId: null, isPending: false });
+    const id = get().pollingIntervalId;
+    if (id) { 
+      clearInterval(id); 
+      set({ pollingIntervalId: null, isPending: false }); 
     }
   },
 
   resetStore: () => {
-    const intervalId = get().pollingIntervalId;
-    if (intervalId) clearInterval(intervalId);
-
-    set({
-      status: "PENDING",
-      nodes: [],
-      edges: [],
-      summaries: {},
-      initialLoading: true,
-      isPending: false,
-      isInspectorLoading: false,
-      selectedNode: null,
-      error: null,
+    const id = get().pollingIntervalId;
+    if (id) clearInterval(id);
+    set({ 
+      status: "PENDING", 
+      nodes: [], 
+      edges: [], 
+      summaries: {}, 
+      selectedNode: null, 
+      selectedFile: null, 
       pollingIntervalId: null,
+      isPending: false,
+      isInspectorLoading: false
     });
   },
 }));

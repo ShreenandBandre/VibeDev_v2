@@ -1,3 +1,4 @@
+// filepath: /components/visualizer/code-inspector.tsx
 "use client";
 
 import React from "react";
@@ -89,8 +90,17 @@ export function CodeInspector({ node, summary, onClose }: InspectorProps) {
                 {finalComplexity}
               </span>
             </div>
-          )}
-        </div>
+
+            {node.type !== "folder" && (
+              <div className="flex items-center justify-between p-3 bg-zinc-900/40 rounded-lg border border-zinc-800">
+                <span className="text-[10px] text-zinc-400 flex items-center gap-1"><BarChart2 size={10}/> Complexity</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${summary?.complexity === 'High' ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+                  {summary?.complexity || "Low"}
+                </span>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* FOOTER */}

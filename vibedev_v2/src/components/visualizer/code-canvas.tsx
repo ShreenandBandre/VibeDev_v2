@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useVisualizerStore, VisualizerNode, VisualizerEdge } from "@/store/use-visualizer-store";
 import { Folder, FileCode, Cpu, Link2 } from "lucide-react";
@@ -14,33 +14,73 @@ interface CanvasProps {
 
 export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
   const params = useParams();
-  const [filterType, setFilterType] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const fetchNodeSummary = useVisualizerStore((state) => state.fetchNodeSummary);
+
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
 
   const playgroundId = Array.isArray(params?.playground)
     ? params.playground[0]
     : (params?.playground || "") as string;
 
+  const selectedNode = useVisualizerStore((state) => state.selectedNode);
+  
+  // Sync view filter if parent completely clears active selection states
+  useEffect(() => {
+    if (!selectedNode) {
+      setSelectedFolderId(null);
+      setSelectedFileId(null);
+    }
+  }, [selectedNode]);
+
+  // 🛠️ FIX: Robust layout hierarchy matcher
   const displayedNodes = useMemo(() => {
-    return filterType ? nodes.filter(n => n.type === filterType) : nodes;
-  }, [nodes, filterType]);
+    if (selectedFileId) {
+      return nodes.filter(
+        (n) => n.type === "function" && String(n.parentId || n.fileId) === String(selectedFileId)
+      );
+    }
+    
+    if (selectedFolderId) {
+      const folderChildren = nodes.filter(
+        (n) => n.type === "file" && String(n.parentId || n.folderId) === String(selectedFolderId)
+      );
+
+      // FALLBACK WORKAROUND: If data maps files flatly without parent ids, match via file paths
+      if (folderChildren.length === 0) {
+        const targetFolderNode = nodes.find(n => String(n.id) === String(selectedFolderId) || String(n._id) === String(selectedFolderId));
+        if (targetFolderNode?.label) {
+          return nodes.filter(
+            (n) => n.type === "file" && (
+              String(n.path || "").includes(`/${targetFolderNode.label}/`) || 
+              String(n.parentId || n.folderId) === String(selectedFolderId)
+            )
+          );
+        }
+      }
+      return folderChildren;
+    }
+
+    // Root Viewport: Filter to only top-level nodes or explicit folders
+    const rootFolders = nodes.filter((n) => n.type === "folder" && (!n.parentId && !n.folderId));
+    
+    // Fallback safeguard: If all folders are stored at root level, show all folders
+    if (rootFolders.length === 0) {
+      return nodes.filter((n) => n.type === "folder");
+    }
+    
+    return rootFolders;
+  }, [nodes, selectedFolderId, selectedFileId]);
 
   const activeConnectedNodeIds = useMemo(() => {
     if (!hoveredNodeId) return new Set<string>();
-    const connected = new Set<string>();
-    
-    edges.forEach(edge => {
-      if (edge.source === hoveredNodeId) connected.add(edge.target);
-      if (edge.target === hoveredNodeId) connected.add(edge.source);
-    });
-    
-    return connected;
+    return new Set(
+      edges
+        .filter((e) => String(e.source) === String(hoveredNodeId) || String(e.target) === String(hoveredNodeId))
+        .map((e) => String(e.source) === String(hoveredNodeId) ? String(e.target) : String(e.source))
+    );
   }, [hoveredNodeId, edges]);
-
-  const getConnectionCount = (nodeId: string) => {
-    return edges.filter(e => e.source === nodeId || e.target === nodeId).length;
-  };
 
   const handleElementSelection = (node: VisualizerNode) => {
     onNodeSelect(node);
@@ -61,43 +101,63 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
     }
   };
 
+  const currentFolderName = useMemo(() => {
+    return nodes.find((n) => String(n.id) === String(selectedFolderId) || String(n._id) === String(selectedFolderId))?.label;
+  }, [nodes, selectedFolderId]);
+
+  const currentFileName = useMemo(() => {
+    return nodes.find((n) => String(n.id) === String(selectedFileId) || String(n._id) === String(selectedFileId))?.label;
+  }, [nodes, selectedFileId]);
+
+  const resetFilters = () => {
+    setSelectedFolderId(null);
+    setSelectedFileId(null);
+    useVisualizerStore.getState().setSelectedNode(null);
+    useVisualizerStore.getState().setSelectedFile(null);
+  };
+
   return (
-    <div className="relative w-full h-[650px] bg-zinc-950 rounded-2xl border border-zinc-900 overflow-hidden select-none">
-      
-      {/* MAP CONTROLS HEADER */}
-      <div className="absolute top-4 left-4 right-4 z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-zinc-900/80 backdrop-blur-md p-3 rounded-xl border border-zinc-800/80 text-xs text-zinc-400">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-[10px] text-zinc-500 uppercase tracking-wider mr-1">Layer Filters:</span>
-          <button 
-            onClick={() => setFilterType(null)} 
-            className={`px-2 py-0.5 rounded transition-colors text-[11px] ${!filterType ? "bg-indigo-600 text-white font-medium" : "hover:text-zinc-200"}`}
+    <div className="flex flex-col w-full h-full bg-zinc-950 border border-zinc-900 rounded-2xl overflow-hidden">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-900 shrink-0">
+        <div className="flex items-center gap-2 text-xs font-medium">
+          <button
+            onClick={resetFilters}
+            className={`transition-colors ${!selectedFolderId ? "text-white font-bold" : "text-zinc-500 hover:text-zinc-300"}`}
           >
-            All ({nodes.length})
+            Root
           </button>
-          <button 
-            onClick={() => setFilterType("folder")} 
-            className={`px-2 py-0.5 rounded transition-colors text-[11px] ${filterType === "folder" ? "bg-amber-600 text-white font-medium" : "hover:text-zinc-200"}`}
-          >
-            Folders
-          </button>
-          <button 
-            onClick={() => setFilterType("file")} 
-            className={`px-2 py-0.5 rounded transition-colors text-[11px] ${filterType === "file" ? "bg-blue-600 text-white font-medium" : "hover:text-zinc-200"}`}
-          >
-            Files
-          </button>
-          <button 
-            onClick={() => setFilterType("function")} 
-            className={`px-2 py-0.5 rounded transition-colors text-[11px] ${filterType === "function" ? "bg-emerald-600 text-white font-medium" : "hover:text-zinc-200"}`}
-          >
-            Functions
-          </button>
+
+          {selectedFolderId && (
+            <>
+              <ChevronRight size={12} className="text-zinc-600" />
+              <button
+                onClick={() => { setSelectedFileId(null); useVisualizerStore.getState().setSelectedFile(null); }}
+                className={`transition-colors truncate max-w-[150px] ${!selectedFileId ? "text-amber-400 font-bold" : "text-zinc-500 hover:text-zinc-300"}`}
+              >
+                {currentFolderName || "Folder"}
+              </button>
+            </>
+          )}
+
+          {selectedFileId && (
+            <>
+              <ChevronRight size={12} className="text-zinc-600" />
+              <span className="text-blue-400 font-bold truncate max-w-[150px]">
+                {currentFileName || "File"}
+              </span>
+            </>
+          )}
+
+          {(selectedFolderId || selectedFileId) && (
+            <button onClick={resetFilters} className="ml-2 p-1 rounded hover:bg-zinc-900 text-zinc-500 hover:text-zinc-300 transition-all">
+              <RotateCcw size={12} />
+            </button>
+          )}
         </div>
 
         {hoveredNodeId && (
-          <div className="text-[10px] font-mono text-indigo-400 flex items-center gap-1.5 animate-in fade-in duration-100">
-            <Link2 size={12} className="animate-pulse" />
-            Showing links for selected subsystem block
+          <div className="text-[10px] font-mono text-indigo-500 flex items-center gap-1">
+            <Link2 size={10} /> Active Trace
           </div>
         )}
       </div>
@@ -156,6 +216,7 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
                     {node.type}
                   </span>
                 </div>
+                <h4 className="text-xs font-bold text-zinc-200 truncate select-none">{node.label}</h4>
               </div>
 
               <div className="mt-4">

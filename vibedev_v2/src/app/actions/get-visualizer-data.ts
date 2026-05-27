@@ -7,7 +7,7 @@ export async function getRepositoryTopology(playgroundId: string) {
   if (!playgroundId) return { success: false, error: "Missing playground reference." };
 
   try {
-    // 1. Query the primary RepositoryMap document directly
+    // 1. Query the primary RepositoryMap document
     const repoMap = await prisma.repositoryMap.findUnique({
       where: { playgroundId },
     });
@@ -15,11 +15,20 @@ export async function getRepositoryTopology(playgroundId: string) {
     if (!repoMap) {
       return { 
         success: false, 
-        error: "Repository architecture layout map not generated yet. Trigger Parse Architecture to map assets." 
+        error: "Repository architecture layout map not generated yet." 
       };
     }
 
-    // 2. Extract arrays directly from your JSON fields
+    // 2. Fetch all files for this playground to retrieve their raw content
+    const allFiles = await prisma.templateFile.findMany({
+      where: { playgroundId },
+      select: { id: true, content: true }
+    });
+
+    // Create a map for O(1) lookup
+    const fileContentMap = new Map(allFiles.map(f => [f.id, f.content]));
+
+    // 3. Extract and normalize nodes
     const rawNodes = (repoMap.nodes as any[]) || [];
     const edges = (repoMap.edges as any[]) || [];
 
@@ -49,10 +58,9 @@ export async function getRepositoryTopology(playgroundId: string) {
 
     // Debugging counters to verify collection states in your backend server console
     console.log(`\n📦 [Topology Synced] Playground ID: ${playgroundId}`);
-    console.log(`📁 Folders:  ${nodes.filter(n => n.type === "folder").length}`);
-    console.log(`📄 Files:    ${nodes.filter(n => n.type === "file").length}`);
-    console.log(`ƒ Functions: ${nodes.filter(n => n.type === "function").length}`);
-    console.log(`🔗 Links:     ${edges.length}\n`);
+    console.log(`📁 Folders: ${nodes.filter(n => n.type === "folder").length}`);
+    console.log(`📄 Files: ${nodes.filter(n => n.type === "file").length}`);
+    console.log(`🔗 Links: ${edges.length}\n`);
 
     return {
       success: true,
