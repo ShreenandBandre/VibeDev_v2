@@ -1,22 +1,56 @@
-// filepath: /src/store/use-visualizer-store.ts
 import { create } from "zustand";
 import { getRepositoryTopology } from "@/app/actions/get-visualizer-data";
 import { analyzeRepositoryArchitecture } from "@/app/actions/visualizer-engine";
 import { generateSingleFileSummary } from "@/app/actions/get-file-summary";
 
+export type NodeType = "file" | "function" | "folder" | "folderGroup" | "functionNode";
+
+export interface VisualizerNode {
+  id: string;
+  _id?: string;
+  type: NodeType;
+  label?: string;
+  name?: string;
+  path?: string;
+  content?: string;
+  summary?: string;
+  complexity?: "Low" | "Medium" | "High" | string;
+  data?: {
+    id?: string;
+    fileId?: string;
+    path?: string;
+    content?: string;
+    rawContent?: string;
+    summary?: string;
+    complexity?: string;
+  };
+}
+
+export interface VisualizerEdge {
+  id: string;
+  source: string;
+  target: string;
+}
+
+export interface NodeSummaryPayload {
+  summary: string;
+  complexity: string;
+  rawContent: string;
+}
+
 interface VisualizerState {
   status: string;
-  nodes: any[];
-  edges: any[];
-  summaries: Record<string, any>;
+  nodes: VisualizerNode[];
+  edges: VisualizerEdge[];
+  summaries: Record<string, NodeSummaryPayload>;
   initialLoading: boolean;
   isPending: boolean;
   isInspectorLoading: boolean;
-  selectedNode: any | null;
+  selectedNode: VisualizerNode | null;
   error: string | null;
   pollingIntervalId: NodeJS.Timeout | null;
 
-  setSelectedNode: (node: any | null) => void;
+  setSelectedNode: (node: VisualizerNode | null) => void;
   loadTopologyMapData: (playgroundId: string) => Promise<void>;
   executeAIAnalysis: (playgroundId: string) => Promise<void>;
   fetchNodeSummary: (nodeId: string, playgroundId: string, nodeType: "file" | "function") => Promise<void>;
@@ -88,10 +122,8 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
     
     set({ isInspectorLoading: true });
     try {
-      // 1. Fire single file/function summary engine
       const res = await generateSingleFileSummary(nodeId, playgroundId, nodeType);
       
-      // 2. Locate node properties locally for absolute fallback safety
       const currentNodes = get().nodes;
       const targetNode = currentNodes.find(n => n.id === nodeId || n._id === nodeId || n.data?.id === nodeId);
       
@@ -101,22 +133,18 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
         const incomingComplexity = res?.complexity || res?.data?.complexity;
         const incomingRawContent = res?.rawContent || res?.data?.rawContent || targetNode?.content || targetNode?.data?.content || "";
 
-        // 🚀 Multi-key map resolution fallback payload (Binds data cleanly across both React Flow IDs and DB IDs)
-        const nodePayload = {
+        const nodePayload: NodeSummaryPayload = {
           summary: incomingSummary || "No architecture summary compiled yet.",
           complexity: incomingComplexity || "Low",
           rawContent: incomingRawContent
         };
 
-        // Populate baseline payload under targeted argument key
         updatedSummaries[nodeId] = nodePayload;
 
-        // Cross-populate fallback keys if node records present alternative ID structures
         if (targetNode?.id) updatedSummaries[targetNode.id] = nodePayload;
         if (targetNode?._id) updatedSummaries[targetNode._id] = nodePayload;
         if (targetNode?.data?.fileId) updatedSummaries[targetNode.data.fileId] = nodePayload;
 
-        // Handle structural synchronization if target matches internal function type references
         const incomingParentId = res?.parentFileId || res?.data?.parentFileId || targetNode?.data?.fileId;
         if (nodeType === "function" && incomingParentId) {
           updatedSummaries[incomingParentId] = updatedSummaries[incomingParentId] || {

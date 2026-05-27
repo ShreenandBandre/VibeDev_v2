@@ -1,18 +1,16 @@
-// filepath: /src/components/visualizer/code-inspector.tsx
 "use client";
 
 import React from "react";
-import { useVisualizerStore } from "@/store/use-visualizer-store";
+import { useVisualizerStore, VisualizerNode, NodeSummaryPayload } from "@/store/use-visualizer-store";
 import { Loader2, X, FileText, BarChart2 } from "lucide-react";
 
 interface InspectorProps {
-  node: any;
-  summary: any;
+  node: VisualizerNode | null;
+  summary: NodeSummaryPayload | null;
   onClose: () => void;
 }
 
 export function CodeInspector({ node, summary, onClose }: InspectorProps) {
-  // Connect the loading state to the Zustand store
   const isInspectorLoading = useVisualizerStore((state) => state.isInspectorLoading);
 
   if (!node) {
@@ -23,16 +21,13 @@ export function CodeInspector({ node, summary, onClose }: InspectorProps) {
     );
   }
 
-  // 🚀 CRITICAL FIX: Cross-examine fallback attributes to avoid empty strings
   const finalSummary = 
     summary?.summary || 
-    summary?.data?.summary || 
     node?.summary || 
     node?.data?.summary;
 
   const finalComplexity = 
     summary?.complexity || 
-    summary?.data?.complexity || 
     node?.complexity || 
     node?.data?.complexity;
 
@@ -80,7 +75,7 @@ export function CodeInspector({ node, summary, onClose }: InspectorProps) {
             )}
           </div>
 
-          {/* META PARAMETERS - 🚀 FIXED: Allow both files and functions to display their complexity levels */}
+          {/* META PARAMETERS */}
           {!isFolder && !isInspectorLoading && finalComplexity && (
             <div className="bg-zinc-900/20 border border-zinc-900/60 p-3 rounded-xl flex items-center justify-between text-[11px] animate-in fade-in duration-150">
               <span className="text-zinc-500 flex items-center gap-1">

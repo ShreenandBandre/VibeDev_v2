@@ -1,9 +1,8 @@
-// filepath: /src/app/dashboard/visualizer/[playground]/page.tsx
 "use client";
 
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useVisualizerStore } from "@/store/use-visualizer-store";
+import { useVisualizerStore, VisualizerNode, NodeSummaryPayload } from "@/store/use-visualizer-store";
 import { CodeCanvas } from "@/components/visualizer/code-canvas";
 import { CodeInspector } from "@/components/visualizer/code-inspector";
 import { Button } from "@/components/ui/button";
@@ -44,8 +43,7 @@ export default function DeepWorkspaceVisualizerPage() {
     return () => resetStore();
   }, [playgroundId]);
 
-  // 🔍 FIX: Comprehensive look-ahead data resolver matching the store fallback architecture
-  const getActiveSummary = () => {
+  const getActiveSummary = (): NodeSummaryPayload | null => {
     if (!selectedNode) return null;
     
     const idOptions = [
@@ -61,12 +59,11 @@ export default function DeepWorkspaceVisualizerPage() {
       }
     }
 
-    // Direct embed object fallback tracking
     if (selectedNode.summary || selectedNode.data?.summary) {
       return {
-        summary: selectedNode.summary || selectedNode.data?.summary,
-        complexity: selectedNode.complexity || selectedNode.data?.complexity,
-        rawContent: selectedNode.content || selectedNode.data?.content
+        summary: selectedNode.summary || selectedNode.data?.summary || "",
+        complexity: selectedNode.complexity || selectedNode.data?.complexity || "Low",
+        rawContent: selectedNode.content || selectedNode.data?.content || ""
       };
     }
     
@@ -76,7 +73,7 @@ export default function DeepWorkspaceVisualizerPage() {
   const currentSummary = getActiveSummary();
   const activeSelectedId = selectedNode ? (selectedNode.id || selectedNode._id || selectedNode.data?.id) : null;
 
-  const handleElementSelection = async (item: any) => {
+  const handleElementSelection = async (item: VisualizerNode) => {
     setSelectedNode(item);
     const targetId = item?.id || item?._id || item?.data?.id;
     
@@ -96,7 +93,6 @@ export default function DeepWorkspaceVisualizerPage() {
       currentSummary?.rawContent || 
       selectedNode.content || 
       selectedNode.data?.content || 
-      selectedNode.rawContent ||
       selectedNode.data?.rawContent;
 
     if (rawContent && rawContent.trim() !== "") {
@@ -217,7 +213,7 @@ export default function DeepWorkspaceVisualizerPage() {
                       ) : (
                         getRawCodeSnippet()
                       )}
-                    </code>
+                    Prefix</code>
                   </pre>
                 </div>
               </div>
@@ -248,7 +244,7 @@ export default function DeepWorkspaceVisualizerPage() {
             ) : (
               <div className="w-full h-full p-4 overflow-auto bg-zinc-950/60 select-none">
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {nodes.map((item: any) => {
+                  {nodes.map((item: VisualizerNode) => {
                     const itemId = item.id || item._id || item.data?.id;
                     const isSelected = activeSelectedId === itemId;
                     const rawType = item.type?.replace("Node", "")?.replace("Group", "") || "file";
