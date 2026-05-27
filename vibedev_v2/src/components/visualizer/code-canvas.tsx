@@ -1,16 +1,15 @@
-// filepath: /components/visualizer/code-canvas.tsx
 "use client";
 
 import React, { useState, useMemo } from "react";
 import { useParams } from "next/navigation";
-import { useVisualizerStore } from "@/store/use-visualizer-store";
+import { useVisualizerStore, VisualizerNode, VisualizerEdge } from "@/store/use-visualizer-store";
 import { Folder, FileCode, Cpu, Link2 } from "lucide-react";
 
 interface CanvasProps {
-  nodes: any[];
-  edges: any[];
-  summaries: any;
-  onNodeSelect: (node: any) => void;
+  nodes: VisualizerNode[];
+  edges: VisualizerEdge[];
+  summaries: Record<string, any>;
+  onNodeSelect: (node: VisualizerNode) => void;
 }
 
 export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
@@ -43,13 +42,14 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
     return edges.filter(e => e.source === nodeId || e.target === nodeId).length;
   };
 
-  const handleElementSelection = (node: any) => {
+  const handleElementSelection = (node: VisualizerNode) => {
     onNodeSelect(node);
     
     console.log("🎯 Canvas Selected Asset Node Properties:", node);
 
-    // 🚀 Broadened condition to allow both files and functions
-    if ((node.type === "file" || node.type === "function") && playgroundId) {
+    const normalizedType = node.type === "functionNode" || node.type === "function" ? "function" : "file";
+
+    if ((normalizedType === "file" || normalizedType === "function") && playgroundId) {
       const targetIdentifier = node.id || node._id;
 
       if (!targetIdentifier) {
@@ -57,7 +57,7 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
         return;
       }
 
-      fetchNodeSummary(targetIdentifier, playgroundId, node.type);
+      fetchNodeSummary(targetIdentifier, playgroundId, normalizedType);
     }
   };
 
@@ -105,7 +105,7 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
       {/* RENDER SPACE GRID */}
       <div className="w-full h-full p-6 overflow-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 content-start pt-20">
         {displayedNodes.map((node) => {
-          const isFolder = node.type === "folder";
+          const isFolder = node.type === "folder" || node.type === "folderGroup";
           const isFile = node.type === "file";
           
           const isCurrentHoverTarget = hoveredNodeId === node.id;
@@ -160,7 +160,7 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
 
               <div className="mt-4">
                 <h4 className="text-xs font-bold text-zinc-200 truncate group-hover:text-white transition-colors">
-                  {node.label}
+                  {node.label || node.name}
                 </h4>
                 <p className="text-[9px] font-mono text-zinc-500 truncate mt-0.5" title={node.id}>
                   Ref: {node.id.length > 24 ? `...${node.id.slice(-22)}` : node.id}
