@@ -33,10 +33,12 @@ export async function getRepositoryTopology(playgroundId: string) {
     const edges = (repoMap.edges as any[]) || [];
 
     const nodes = rawNodes.map((node: any) => {
-      const nodeId = node.id || node._id?.toString();
+      // Safely extract the raw string value of whichever identifier exists
+      const nodeId = node.id || node._id?.toString() || "";
       
       return {
         id: nodeId,
+        _id: nodeId, // 💡 CRITICAL FIX: Explicitly supply both shapes so key lookups don't drop out in UI State
         label: node.label || node.name || "unnamed_entity",
         type: node.type || "file",
         path: node.path || "",

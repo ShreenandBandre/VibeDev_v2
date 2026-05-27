@@ -14,7 +14,7 @@ export default function DeepWorkspaceVisualizerPage() {
   const playgroundId = Array.isArray(params?.playground) ? params.playground[0] : (params?.playground || "");
 
   const {
-    status, nodes, edges, summaries, isPending, selectedNode, selectedFile,
+    nodes, edges, summaries, isPending, selectedNode, selectedFile,
     setSelectedNode, setSelectedFile, loadTopologyMapData, executeAIAnalysis, resetStore,
   } = useVisualizerStore();
 
@@ -37,23 +37,34 @@ export default function DeepWorkspaceVisualizerPage() {
       </div>
 
       <div className="flex-1 flex relative overflow-hidden">
-        {/* LEFT: CODE SIDEBAR */}
+        {/* LEFT CODE SIDEBAR VIEWPORT */}
         <div className={`absolute left-0 h-full w-96 bg-zinc-950 border-r border-zinc-900 z-30 transition-transform duration-300 ${selectedFile ? "translate-x-0" : "-translate-x-full"}`}>
           <div className="p-6 h-full overflow-y-auto">
-            <h2 className="text-white text-xs mb-4 font-mono">File: {selectedFile?.label || "None"}</h2>
-            <pre className="text-[10px] text-zinc-500 font-mono whitespace-pre-wrap">{selectedFile?.content || "// No code content loaded"}</pre>
+            <h2 className="text-white text-xs mb-4 font-mono truncate">File: {selectedFile?.label || "None"}</h2>
+            <pre className="text-[10px] text-zinc-500 font-mono whitespace-pre-wrap bg-zinc-900/40 p-3 rounded-lg border border-zinc-900">
+              {selectedFile?.content || "// No code content loaded"}
+            </pre>
           </div>
         </div>
 
-        {/* CENTER: CANVAS */}
+        {/* WORKSPACE MIDDLE LAYER CORE CANVAS */}
         <div className={`flex-1 h-full p-4 transition-all duration-300 ${selectedFile ? "ml-96" : "ml-0"} ${selectedNode ? "mr-80" : "mr-0"}`}>
-          <CodeCanvas nodes={nodes} edges={edges} summaries={summaries} onNodeSelect={(node) => {
-             setSelectedNode(node);
-             setSelectedFile(node); 
-          }} />
+          <CodeCanvas 
+            nodes={nodes} 
+            edges={edges} 
+            summaries={summaries} 
+            onNodeSelect={(node) => {
+              setSelectedNode(node);
+              if (node.type === "file") {
+                setSelectedFile(node);
+              } else if (node.type === "folder") {
+                setSelectedFile(null);
+              }
+            }} 
+          />
         </div>
 
-        {/* RIGHT: INSPECTOR */}
+        {/* RIGHT ANALYSIS VIEWPORT INSPECTOR */}
         {selectedNode && (
           <div className="absolute right-0 top-0 h-full w-80 z-30">
             <CodeInspector 

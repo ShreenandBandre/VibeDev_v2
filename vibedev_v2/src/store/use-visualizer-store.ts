@@ -1,3 +1,4 @@
+// filepath: /src/store/use-visualizer-store.ts
 import { create } from "zustand";
 import { getRepositoryTopology } from "@/app/actions/get-visualizer-data";
 import { analyzeRepositoryArchitecture } from "@/app/actions/visualizer-engine";
@@ -19,12 +20,12 @@ interface VisualizerState {
   isPending: boolean;
   isInspectorLoading: boolean;
   selectedNode: any | null;
-  selectedFile: any | null; // Added
+  selectedFile: any | null;
   error: string | null;
   pollingIntervalId: NodeJS.Timeout | null;
 
   setSelectedNode: (node: any | null) => void;
-  setSelectedFile: (file: any | null) => void; // Added
+  setSelectedFile: (file: any | null) => void;
   loadTopologyMapData: (playgroundId: string) => Promise<void>;
   executeAIAnalysis: (playgroundId: string) => Promise<void>;
   fetchNodeSummary: (nodeId: string, playgroundId: string, nodeType: "file" | "function") => Promise<void>;
@@ -54,11 +55,16 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
     try {
       const res = await getRepositoryTopology(playgroundId);
       if (res && res.success) {
+        // Prevent polling updates from wiping out active summaries in local UI state
+        const fallbackSummaries = Object.keys(res.summaries || {}).length > 0 
+          ? res.summaries 
+          : get().summaries;
+
         set({
           status: res.status || "PENDING",
           nodes: res.nodes || [],
           edges: res.edges || [],
-          summaries: res.summaries || {},
+          summaries: fallbackSummaries,
           error: null,
         });
         if (res.status === "COMPLETED" || res.status === "FAILED") get().stopPollingStatus();
@@ -79,29 +85,41 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
       const res = await analyzeRepositoryArchitecture(playgroundId);
       if (res && res.success) get().startPollingStatus(playgroundId);
       else {
-        set({ status: "FAILED", error: res.error });
-        set({ isPending: false });
+        set({ status: "FAILED", error: res.error, isPending: false });
       }
     } catch (err: any) {
-      set({ status: "FAILED", error: err.message });
-      set({ isPending: false });
+      set({ status: "FAILED", error: err.message, isPending: false });
     }
   },
 
   fetchNodeSummary: async (nodeId, playgroundId, nodeType) => {
+    const cleanId = String(nodeId);
+    
+    // Don't restart loading state if summary already exists
+    if (get().summaries[cleanId]?.summary) return;
+
     set((state) => ({
       isInspectorLoading: true,
-      summaries: { ...state.summaries, [nodeId]: { ...state.summaries[nodeId], loading: true } }
+      summaries: { 
+        ...state.summaries, 
+        [cleanId]: { summary: "Generating architecture insights...", complexity: "Analyzing...", loading: true } 
+      }
     }));
     try {
-      const res = await generateSingleFileSummary(nodeId, playgroundId, nodeType);
+      const res = await generateSingleFileSummary(cleanId, playgroundId, nodeType);
       if (res?.success) {
         set((state) => ({
-          summaries: { ...state.summaries, [nodeId]: { summary: res.summary!, complexity: res.complexity!, loading: false } }
+          summaries: { 
+            ...state.summaries, 
+            [cleanId]: { summary: res.summary || "Complete.", complexity: res.complexity || "Low", loading: false } 
+          }
         }));
       }
-    } catch (err) { console.error(err); }
-    finally { set({ isInspectorLoading: false }); }
+    } catch (err) { 
+      console.error("Failed fetching node summary summary stream:", err); 
+    } finally { 
+      set({ isInspectorLoading: false }); 
+    }
   },
 
   startPollingStatus: (playgroundId) => {
@@ -112,12 +130,25 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
 
   stopPollingStatus: () => {
     const id = get().pollingIntervalId;
-    if (id) { clearInterval(id); set({ pollingIntervalId: null, isPending: false }); }
+    if (id) { 
+      clearInterval(id); 
+      set({ pollingIntervalId: null, isPending: false }); 
+    }
   },
 
   resetStore: () => {
     const id = get().pollingIntervalId;
     if (id) clearInterval(id);
-    set({ status: "PENDING", nodes: [], edges: [], summaries: {}, selectedNode: null, selectedFile: null, pollingIntervalId: null });
+    set({ 
+      status: "PENDING", 
+      nodes: [], 
+      edges: [], 
+      summaries: {}, 
+      selectedNode: null, 
+      selectedFile: null, 
+      pollingIntervalId: null,
+      isPending: false,
+      isInspectorLoading: false
+    });
   },
 }));
