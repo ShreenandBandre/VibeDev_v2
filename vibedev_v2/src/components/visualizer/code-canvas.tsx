@@ -1,16 +1,15 @@
-// filepath: /src/components/visualizer/code-canvas.tsx
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { useVisualizerStore } from "@/store/use-visualizer-store";
-import { Folder, FileCode, Cpu, Link2, RotateCcw, ChevronRight } from "lucide-react";
+import { useVisualizerStore, VisualizerNode, VisualizerEdge } from "@/store/use-visualizer-store";
+import { Folder, FileCode, Cpu, Link2 } from "lucide-react";
 
 interface CanvasProps {
-  nodes: any[];
-  edges: any[];
-  summaries: any;
-  onNodeSelect: (node: any) => void;
+  nodes: VisualizerNode[];
+  edges: VisualizerEdge[];
+  summaries: Record<string, any>;
+  onNodeSelect: (node: VisualizerNode) => void;
 }
 
 export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
@@ -83,18 +82,22 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
     );
   }, [hoveredNodeId, edges]);
 
-  const handleElementSelection = (node: any) => {
-    const targetId = node.id || node._id;
+  const handleElementSelection = (node: VisualizerNode) => {
     onNodeSelect(node);
     
-    if ((node.type === "file" || node.type === "function") && playgroundId) {
-      fetchNodeSummary(targetId, playgroundId, node.type);
-    }
+    console.log("🎯 Canvas Selected Asset Node Properties:", node);
 
-    if (node.type === "folder") {
-      setSelectedFolderId(targetId);
-    } else if (node.type === "file") {
-      setSelectedFileId(targetId);
+    const normalizedType = node.type === "functionNode" || node.type === "function" ? "function" : "file";
+
+    if ((normalizedType === "file" || normalizedType === "function") && playgroundId) {
+      const targetIdentifier = node.id || node._id;
+
+      if (!targetIdentifier) {
+        console.error("❌ Action aborted: Object does not contain a valid identification token.", node);
+        return;
+      }
+
+      fetchNodeSummary(targetIdentifier, playgroundId, normalizedType);
     }
   };
 
@@ -159,37 +162,74 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4 content-start">
-        {displayedNodes.length === 0 ? (
-          <div className="col-span-full py-20 text-center text-zinc-600 text-xs font-mono border border-dashed border-zinc-900 rounded-xl m-2">
-            No active architectural components nested here.
-          </div>
-        ) : (
-          displayedNodes.map((node) => {
-            const nodeId = node.id || node._id;
-            const isHovered = hoveredNodeId === nodeId;
-            const isRelated = activeConnectedNodeIds.has(String(nodeId));
+      {/* RENDER SPACE GRID */}
+      <div className="w-full h-full p-6 overflow-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 content-start pt-20">
+        {displayedNodes.map((node) => {
+          const isFolder = node.type === "folder" || node.type === "folderGroup";
+          const isFile = node.type === "file";
+          
+          const isCurrentHoverTarget = hoveredNodeId === node.id;
+          const isRelatedToHoverTarget = activeConnectedNodeIds.has(node.id);
+          const totalConnections = getConnectionCount(node.id);
 
-            return (
-              <div
-                key={nodeId}
-                onClick={() => handleElementSelection(node)}
-                onMouseEnter={() => setHoveredNodeId(nodeId)}
-                onMouseLeave={() => setHoveredNodeId(null)}
-                className={`p-4 rounded-xl border transition-all duration-200 cursor-pointer ${
-                  isHovered ? "border-indigo-500 bg-zinc-900 shadow-lg" : 
-                  isRelated ? "border-zinc-700 bg-zinc-900/50" : "border-zinc-900 bg-zinc-900/10 hover:border-zinc-800"
-                }`}
-              >
-                <div className="flex items-center gap-2 mb-3">
-                  <Folder size={14} className="text-amber-500" />
-                  <span className="text-[9px] font-mono text-zinc-600 uppercase tracking-wider">{node.type}</span>
+          let relationshipBorderClass = "border-zinc-900/60";
+          let relationshipBgClass = "bg-zinc-900/20";
+          
+          if (hoveredNodeId) {
+            if (isCurrentHoverTarget) {
+              relationshipBorderClass = isFolder ? "border-amber-500 scale-[1.01]" : isFile ? "border-blue-500 scale-[1.01]" : "border-emerald-500 scale-[1.01]";
+              relationshipBgClass = isFolder ? "bg-amber-950/30" : isFile ? "bg-blue-950/30" : "bg-emerald-950/30";
+            } else if (isRelatedToHoverTarget) {
+              relationshipBorderClass = "border-indigo-500/80 ring-1 ring-indigo-500/30";
+              relationshipBgClass = "bg-indigo-950/20";
+            } else {
+              relationshipBgClass = "bg-zinc-950 opacity-25";
+            }
+          } else {
+            if (isFolder) { relationshipBorderClass = "hover:border-amber-700/50"; relationshipBgClass = "bg-amber-950/5"; }
+            else if (isFile) { relationshipBorderClass = "hover:border-blue-700/50"; relationshipBgClass = "bg-blue-950/5"; }
+            else { relationshipBorderClass = "hover:border-emerald-700/50"; relationshipBgClass = "bg-emerald-950/5"; }
+          }
+
+          return (
+            <div
+              key={node.id}
+              onClick={() => handleElementSelection(node)}
+              onMouseEnter={() => setHoveredNodeId(node.id)}
+              onMouseLeave={() => setHoveredNodeId(null)}
+              className={`p-4 rounded-xl border cursor-pointer flex flex-col justify-between min-h-[120px] transition-all duration-200 ease-out active:scale-[0.98] group relative ${relationshipBorderClass} ${relationshipBgClass}`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className={`p-2 rounded-lg transition-colors ${
+                  isFolder ? "bg-amber-950/40 text-amber-400" : isFile ? "bg-blue-950/40 text-blue-400" : "bg-emerald-950/40 text-emerald-400"
+                }`}>
+                  {isFolder ? <Folder size={14} /> : isFile ? <FileCode size={14} /> : <Cpu size={14} />}
+                </div>
+                
+                <div className="flex items-center gap-1.5">
+                  {totalConnections > 0 && (
+                    <span className="text-[9px] font-mono bg-zinc-900 px-1.5 py-0.5 rounded text-zinc-500 border border-zinc-800">
+                      links: {totalConnections}
+                    </span>
+                  )}
+                  <span className="text-[9px] font-mono opacity-40 group-hover:opacity-100 transition-opacity uppercase tracking-widest text-zinc-400">
+                    {node.type}
+                  </span>
                 </div>
                 <h4 className="text-xs font-bold text-zinc-200 truncate select-none">{node.label}</h4>
               </div>
-            );
-          })
-        )}
+
+              <div className="mt-4">
+                <h4 className="text-xs font-bold text-zinc-200 truncate group-hover:text-white transition-colors">
+                  {node.label || node.name}
+                </h4>
+                <p className="text-[9px] font-mono text-zinc-500 truncate mt-0.5" title={node.id}>
+                  Ref: {node.id.length > 24 ? `...${node.id.slice(-22)}` : node.id}
+                </p>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
