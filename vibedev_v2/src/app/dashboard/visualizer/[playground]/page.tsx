@@ -1,3 +1,4 @@
+// filepath: /src/app/dashboard/visualizer/[playground]/page.tsx
 "use client";
 
 import React, { useEffect, useState, useRef, useMemo } from "react";
@@ -17,30 +18,11 @@ interface TabItem {
 
 export default function DeepWorkspaceVisualizerPage() {
   const params = useParams();
-  const router = useRouter();
-  
-  const [viewMode, setViewMode] = useState<"graph" | "grid">("graph");
-  const [isLeftDrawerOpen, setIsLeftDrawerOpen] = useState(false);
-
-  const playgroundId = Array.isArray(params?.playground)
-    ? params.playground[0]
-    : (params?.playground || "") as string;
+  const playgroundId = Array.isArray(params?.playground) ? params.playground[0] : (params?.playground || "");
 
   const {
-    status,
-    nodes,
-    edges,
-    summaries,
-    initialLoading,
-    isPending,
-    isInspectorLoading,
-    selectedNode,
-    error,
-    setSelectedNode,
-    loadTopologyMapData,
-    executeAIAnalysis,
-    fetchNodeSummary,
-    resetStore,
+    nodes, edges, summaries, isPending, selectedNode, selectedFile,
+    setSelectedNode, setSelectedFile, loadTopologyMapData, executeAIAnalysis, resetStore,
   } = useVisualizerStore();
 
   // Workspace Viewport Resize Widths
@@ -151,36 +133,8 @@ export default function DeepWorkspaceVisualizerPage() {
       {/* HEADER TOP-BAR */}
       <div className="h-14 border-b border-zinc-900 flex items-center px-4 justify-between shrink-0 bg-zinc-950 z-40">
         <div className="flex items-center gap-3">
-          <div className="flex items-center bg-zinc-900 p-0.5 rounded-lg border border-zinc-800">
-            <Button
-              variant={viewMode === "graph" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode("graph")}
-              className="text-xs gap-1 h-6 px-2 rounded font-medium"
-            >
-              <Network size={11} /> Graph
-            </Button>
-            <Button
-              variant={viewMode === "grid" ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setViewMode("grid")}
-              className="text-xs gap-1 h-6 px-2 rounded font-medium"
-            >
-              <LayoutGrid size={11} /> Grid
-            </Button>
-          </div>
-
-          <Button
-            onClick={() => executeAIAnalysis(playgroundId)}
-            disabled={!playgroundId || isPending || status === "ANALYZING"}
-            className="bg-indigo-600 hover:bg-indigo-500 disabled:bg-zinc-900 text-white disabled:text-zinc-500 text-xs gap-1.5 font-semibold h-8 px-3 rounded-lg transition-all"
-          >
-            {isPending || status === "ANALYZING" ? (
-              <Loader2 size={12} className="animate-spin text-indigo-400" />
-            ) : (
-              "Parse Architecture via AI"
-            )}
-          </Button>
+          <Network size={16} className="text-indigo-400" />
+          <h1 className="text-xs font-bold text-white tracking-wide">Architecture Explorer</h1>
         </div>
         <Button onClick={() => executeAIAnalysis(playgroundId)} disabled={isPending} className="bg-indigo-600 hover:bg-indigo-700 h-8 text-xs">
           {isPending ? <Loader2 className="animate-spin mr-2" size={12}/> : <Sparkles className="mr-2" size={12}/>}

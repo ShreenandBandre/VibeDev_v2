@@ -1,3 +1,4 @@
+// filepath: /src/components/visualizer/code-canvas.tsx
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
@@ -6,10 +7,10 @@ import { useVisualizerStore } from "@/store/use-visualizer-store";
 import { Folder, FileCode, Cpu, Link2, RotateCcw, ChevronRight, Search } from "lucide-react";
 
 interface CanvasProps {
-  nodes: VisualizerNode[];
-  edges: VisualizerEdge[];
-  summaries: Record<string, any>;
-  onNodeSelect: (node: VisualizerNode) => void;
+  nodes: any[];
+  edges: any[];
+  summaries: any;
+  onNodeSelect: (node: any) => void;
 }
 
 export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
@@ -100,15 +101,13 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
     return linked;
   }, [hoveredNodeId, edges]);
 
-  const handleElementSelection = (node: VisualizerNode) => {
+  const handleElementSelection = (node: any) => {
+    const targetId = node.id || node._id;
     onNodeSelect(node);
     
-    console.log("🎯 Canvas Selected Asset Node Properties:", node);
-
-    const normalizedType = node.type === "functionNode" || node.type === "function" ? "function" : "file";
-
-    if ((normalizedType === "file" || normalizedType === "function") && playgroundId) {
-      const targetIdentifier = node.id || node._id;
+    if ((node.type === "file" || node.type === "function") && playgroundId) {
+      fetchNodeSummary(targetId, playgroundId, node.type);
+    }
 
     if (node.type === "folder") {
       setSelectedFolderId(targetId);
@@ -243,18 +242,9 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
                   {node.label}
                 </h4>
               </div>
-
-              <div className="mt-4">
-                <h4 className="text-xs font-bold text-zinc-200 truncate group-hover:text-white transition-colors">
-                  {node.label || node.name}
-                </h4>
-                <p className="text-[9px] font-mono text-zinc-500 truncate mt-0.5" title={node.id}>
-                  Ref: {node.id.length > 24 ? `...${node.id.slice(-22)}` : node.id}
-                </p>
-              </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );

@@ -1,56 +1,31 @@
+// filepath: /src/store/use-visualizer-store.ts
 import { create } from "zustand";
 import { getRepositoryTopology } from "@/app/actions/get-visualizer-data";
 import { analyzeRepositoryArchitecture } from "@/app/actions/visualizer-engine";
 import { generateSingleFileSummary } from "@/app/actions/get-file-summary";
 
-export type NodeType = "file" | "function" | "folder" | "folderGroup" | "functionNode";
-
-export interface VisualizerNode {
-  id: string;
-  _id?: string;
-  type: NodeType;
-  label?: string;
-  name?: string;
-  path?: string;
-  content?: string;
-  summary?: string;
-  complexity?: "Low" | "Medium" | "High" | string;
-  data?: {
-    id?: string;
-    fileId?: string;
-    path?: string;
-    content?: string;
-    rawContent?: string;
-    summary?: string;
-    complexity?: string;
-  };
-}
-
-export interface VisualizerEdge {
-  id: string;
-  source: string;
-  target: string;
-}
-
-export interface NodeSummaryPayload {
+interface NodeSummary {
   summary: string;
   complexity: string;
-  rawContent: string;
+  loading?: boolean;
+  error?: string | null;
 }
 
 interface VisualizerState {
   status: string;
-  nodes: VisualizerNode[];
-  edges: VisualizerEdge[];
-  summaries: Record<string, NodeSummaryPayload>;
+  nodes: any[];
+  edges: any[];
+  summaries: Record<string, NodeSummary>;
   initialLoading: boolean;
   isPending: boolean;
   isInspectorLoading: boolean;
-  selectedNode: VisualizerNode | null;
+  selectedNode: any | null;
+  selectedFile: any | null;
   error: string | null;
   pollingIntervalId: NodeJS.Timeout | null;
 
-  setSelectedNode: (node: VisualizerNode | null) => void;
+  setSelectedNode: (node: any | null) => void;
+  setSelectedFile: (file: any | null) => void;
   loadTopologyMapData: (playgroundId: string) => Promise<void>;
   executeAIAnalysis: (playgroundId: string) => Promise<void>;
   fetchNodeSummary: (nodeId: string, playgroundId: string, nodeType: "file" | "function") => Promise<void>;
@@ -120,46 +95,30 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
   fetchNodeSummary: async (nodeId, playgroundId, nodeType) => {
     const cleanId = String(nodeId);
     
-    set({ isInspectorLoading: true });
+    // Don't restart loading state if summary already exists
+    if (get().summaries[cleanId]?.summary) return;
+
+    set((state) => ({
+      isInspectorLoading: true,
+      summaries: { 
+        ...state.summaries, 
+        [cleanId]: { summary: "Generating architecture insights...", complexity: "Analyzing...", loading: true } 
+      }
+    }));
     try {
-      const res = await generateSingleFileSummary(nodeId, playgroundId, nodeType);
-      
-      const currentNodes = get().nodes;
-      const targetNode = currentNodes.find(n => n.id === nodeId || n._id === nodeId || n.data?.id === nodeId);
-      
-      set((state) => {
-        const updatedSummaries = { ...state.summaries };
-        const incomingSummary = res?.summary || res?.data?.summary;
-        const incomingComplexity = res?.complexity || res?.data?.complexity;
-        const incomingRawContent = res?.rawContent || res?.data?.rawContent || targetNode?.content || targetNode?.data?.content || "";
-
-        const nodePayload: NodeSummaryPayload = {
-          summary: incomingSummary || "No architecture summary compiled yet.",
-          complexity: incomingComplexity || "Low",
-          rawContent: incomingRawContent
-        };
-
-        updatedSummaries[nodeId] = nodePayload;
-
-        if (targetNode?.id) updatedSummaries[targetNode.id] = nodePayload;
-        if (targetNode?._id) updatedSummaries[targetNode._id] = nodePayload;
-        if (targetNode?.data?.fileId) updatedSummaries[targetNode.data.fileId] = nodePayload;
-
-        const incomingParentId = res?.parentFileId || res?.data?.parentFileId || targetNode?.data?.fileId;
-        if (nodeType === "function" && incomingParentId) {
-          updatedSummaries[incomingParentId] = updatedSummaries[incomingParentId] || {
-            summary: "Parent workspace file holding this functional node implementation.",
-            complexity: incomingComplexity || "Low",
-            rawContent: incomingRawContent
-          };
-        }
-
-        return { summaries: updatedSummaries };
-      });
-    } catch (err) {
-      console.error("Failed extracting runtime code snippets:", err);
-    } finally {
-      set({ isInspectorLoading: false });
+      const res = await generateSingleFileSummary(cleanId, playgroundId, nodeType);
+      if (res?.success) {
+        set((state) => ({
+          summaries: { 
+            ...state.summaries, 
+            [cleanId]: { summary: res.summary || "Complete.", complexity: res.complexity || "Low", loading: false } 
+          }
+        }));
+      }
+    } catch (err) { 
+      console.error("Failed fetching node summary summary stream:", err); 
+    } finally { 
+      set({ isInspectorLoading: false }); 
     }
   },
 
