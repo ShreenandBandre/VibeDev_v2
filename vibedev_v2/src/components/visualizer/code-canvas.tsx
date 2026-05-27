@@ -2,8 +2,8 @@
 
 import React, { useState, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { useVisualizerStore, VisualizerNode, VisualizerEdge } from "@/store/use-visualizer-store";
-import { Folder, FileCode, Cpu, Link2 } from "lucide-react";
+import { useVisualizerStore } from "@/store/use-visualizer-store";
+import { Folder, FileCode, Cpu, Link2, RotateCcw, ChevronRight, Search } from "lucide-react";
 
 interface CanvasProps {
   nodes: VisualizerNode[];
@@ -19,6 +19,9 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
 
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  
+  // 2. Global Text Filtering State
+  const [searchQuery, setSearchQuery] = useState("");
 
   const playgroundId = Array.isArray(params?.playground)
     ? params.playground[0]
@@ -26,7 +29,6 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
 
   const selectedNode = useVisualizerStore((state) => state.selectedNode);
   
-  // Sync view filter if parent completely clears active selection states
   useEffect(() => {
     if (!selectedNode) {
       setSelectedFolderId(null);
@@ -34,52 +36,68 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
     }
   }, [selectedNode]);
 
-  // 🛠️ FIX: Robust layout hierarchy matcher
+  // Robust layout hierarchy matcher + Instant global keyword mapping
   const displayedNodes = useMemo(() => {
-    if (selectedFileId) {
-      return nodes.filter(
-        (n) => n.type === "function" && String(n.parentId || n.fileId) === String(selectedFileId)
-      );
-    }
-    
-    if (selectedFolderId) {
-      const folderChildren = nodes.filter(
-        (n) => n.type === "file" && String(n.parentId || n.folderId) === String(selectedFolderId)
-      );
+    let currentPool = nodes;
 
-      // FALLBACK WORKAROUND: If data maps files flatly without parent ids, match via file paths
-      if (folderChildren.length === 0) {
-        const targetFolderNode = nodes.find(n => String(n.id) === String(selectedFolderId) || String(n._id) === String(selectedFolderId));
-        if (targetFolderNode?.label) {
-          return nodes.filter(
-            (n) => n.type === "file" && (
-              String(n.path || "").includes(`/${targetFolderNode.label}/`) || 
-              String(n.parentId || n.folderId) === String(selectedFolderId)
-            )
-          );
+    // Apply directory drill downs if search string isn't actively bypassing context scopes
+    if (!searchQuery) {
+      if (selectedFileId) {
+        currentPool = nodes.filter(
+          (n) => n.type === "function" && String(n.parentId || n.fileId) === String(selectedFileId)
+        );
+      } else if (selectedFolderId) {
+        const folderChildren = nodes.filter(
+          (n) => n.type === "file" && String(n.parentId || n.folderId) === String(selectedFolderId)
+        );
+
+        if (folderChildren.length === 0) {
+          const targetFolderNode = nodes.find(n => String(n.id) === String(selectedFolderId) || String(n._id) === String(selectedFolderId));
+          if (targetFolderNode?.label) {
+            currentPool = nodes.filter(
+              (n) => n.type === "file" && (
+                String(n.path || "").includes(`/${targetFolderNode.label}/`) || 
+                String(n.parentId || n.folderId) === String(selectedFolderId)
+              )
+            );
+          }
+        } else {
+          currentPool = folderChildren;
         }
+      } else {
+        const rootFolders = nodes.filter((n) => n.type === "folder" && (!n.parentId && !n.folderId));
+        currentPool = rootFolders.length === 0 ? nodes.filter((n) => n.type === "folder") : rootFolders;
       }
-      return folderChildren;
     }
 
-    // Root Viewport: Filter to only top-level nodes or explicit folders
-    const rootFolders = nodes.filter((n) => n.type === "folder" && (!n.parentId && !n.folderId));
-    
-    // Fallback safeguard: If all folders are stored at root level, show all folders
-    if (rootFolders.length === 0) {
-      return nodes.filter((n) => n.type === "folder");
+    // Apply Global Search across active or general targets if text string exists
+    if (searchQuery.trim() !== "") {
+      const normalizedQuery = searchQuery.toLowerCase();
+      return nodes.filter(
+        (n) => 
+          n.label?.toLowerCase().includes(normalizedQuery) ||
+          n.type?.toLowerCase().includes(normalizedQuery)
+      );
     }
-    
-    return rootFolders;
-  }, [nodes, selectedFolderId, selectedFileId]);
 
+    return currentPool;
+  }, [nodes, selectedFolderId, selectedFileId, searchQuery]);
+
+  // 3. Relational Dependency Edge Clamping
   const activeConnectedNodeIds = useMemo(() => {
     if (!hoveredNodeId) return new Set<string>();
-    return new Set(
-      edges
-        .filter((e) => String(e.source) === String(hoveredNodeId) || String(e.target) === String(hoveredNodeId))
-        .map((e) => String(e.source) === String(hoveredNodeId) ? String(e.target) : String(e.source))
-    );
+    
+    const linked = new Set<string>();
+    edges.forEach((edge) => {
+      const src = String(edge.source);
+      const tgt = String(edge.target);
+      const current = String(hoveredNodeId);
+      
+      if (src === current) linked.add(tgt);
+      if (tgt === current) linked.add(src);
+    });
+    
+    return linked;
   }, [hoveredNodeId, edges]);
 
   const handleElementSelection = (node: VisualizerNode) => {
@@ -92,12 +110,12 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
     if ((normalizedType === "file" || normalizedType === "function") && playgroundId) {
       const targetIdentifier = node.id || node._id;
 
-      if (!targetIdentifier) {
-        console.error("❌ Action aborted: Object does not contain a valid identification token.", node);
-        return;
-      }
-
-      fetchNodeSummary(targetIdentifier, playgroundId, normalizedType);
+    if (node.type === "folder") {
+      setSelectedFolderId(targetId);
+      setSearchQuery(""); // Clear search filter upon entering explicit scopes
+    } else if (node.type === "file") {
+      setSelectedFileId(targetId);
+      setSearchQuery("");
     }
   };
 
@@ -112,27 +130,30 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
   const resetFilters = () => {
     setSelectedFolderId(null);
     setSelectedFileId(null);
+    setSearchQuery("");
     useVisualizerStore.getState().setSelectedNode(null);
     useVisualizerStore.getState().setSelectedFile(null);
   };
 
   return (
     <div className="flex flex-col w-full h-full bg-zinc-950 border border-zinc-900 rounded-2xl overflow-hidden">
-      <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-900 shrink-0">
-        <div className="flex items-center gap-2 text-xs font-medium">
+      
+      {/* BREADCRUMBS & COMPONENT SEARCH CONTAINER ROW */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-4 border-b border-zinc-900 gap-3 shrink-0 bg-zinc-950">
+        <div className="flex items-center gap-2 text-xs font-medium min-w-0">
           <button
             onClick={resetFilters}
-            className={`transition-colors ${!selectedFolderId ? "text-white font-bold" : "text-zinc-500 hover:text-zinc-300"}`}
+            className={`transition-colors shrink-0 ${!selectedFolderId ? "text-white font-bold" : "text-zinc-500 hover:text-zinc-300"}`}
           >
             Root
           </button>
 
           {selectedFolderId && (
             <>
-              <ChevronRight size={12} className="text-zinc-600" />
+              <ChevronRight size={12} className="text-zinc-600 shrink-0" />
               <button
                 onClick={() => { setSelectedFileId(null); useVisualizerStore.getState().setSelectedFile(null); }}
-                className={`transition-colors truncate max-w-[150px] ${!selectedFileId ? "text-amber-400 font-bold" : "text-zinc-500 hover:text-zinc-300"}`}
+                className={`transition-colors truncate max-w-[120px] ${!selectedFileId ? "text-amber-400 font-bold" : "text-zinc-500 hover:text-zinc-300"}`}
               >
                 {currentFolderName || "Folder"}
               </button>
@@ -141,82 +162,86 @@ export function CodeCanvas({ nodes, edges, onNodeSelect }: CanvasProps) {
 
           {selectedFileId && (
             <>
-              <ChevronRight size={12} className="text-zinc-600" />
-              <span className="text-blue-400 font-bold truncate max-w-[150px]">
+              <ChevronRight size={12} className="text-zinc-600 shrink-0" />
+              <span className="text-blue-400 font-bold truncate max-w-[120px]">
                 {currentFileName || "File"}
               </span>
             </>
           )}
 
-          {(selectedFolderId || selectedFileId) && (
-            <button onClick={resetFilters} className="ml-2 p-1 rounded hover:bg-zinc-900 text-zinc-500 hover:text-zinc-300 transition-all">
+          {(selectedFolderId || selectedFileId || searchQuery) && (
+            <button onClick={resetFilters} className="ml-2 p-1 rounded hover:bg-zinc-900 text-zinc-500 hover:text-zinc-300 transition-all shrink-0">
               <RotateCcw size={12} />
             </button>
           )}
         </div>
 
-        {hoveredNodeId && (
-          <div className="text-[10px] font-mono text-indigo-500 flex items-center gap-1">
-            <Link2 size={10} /> Active Trace
+        {/* UTILITY FILTERS TOOLBAR */}
+        <div className="flex items-center gap-3">
+          <div className="relative flex items-center w-full sm:w-48 md:w-60">
+            <Search size={12} className="absolute left-2.5 text-zinc-600" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter by keyword..."
+              className="w-full bg-zinc-900/60 text-xs text-zinc-200 pl-8 pr-3 py-1.5 rounded-lg border border-zinc-900 focus:outline-none focus:border-indigo-500 placeholder:text-zinc-600 font-mono transition-colors"
+            />
           </div>
-        )}
+
+          {hoveredNodeId && (
+            <div className="text-[10px] font-mono text-indigo-400 flex items-center gap-1 shrink-0 animate-pulse bg-indigo-500/10 px-2 py-1 rounded-md border border-indigo-500/20">
+              <Link2 size={10} /> Active Trace
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* RENDER SPACE GRID */}
-      <div className="w-full h-full p-6 overflow-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 content-start pt-20">
-        {displayedNodes.map((node) => {
-          const isFolder = node.type === "folder" || node.type === "folderGroup";
-          const isFile = node.type === "file";
-          
-          const isCurrentHoverTarget = hoveredNodeId === node.id;
-          const isRelatedToHoverTarget = activeConnectedNodeIds.has(node.id);
-          const totalConnections = getConnectionCount(node.id);
+      {/* CORE CANVAS COMPONENT GRID FRAME */}
+      <div className="flex-1 overflow-y-auto scrollbar-none p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5 content-start">
+        {displayedNodes.length === 0 ? (
+          <div className="col-span-full py-20 text-center text-zinc-600 text-xs font-mono border border-dashed border-zinc-900 rounded-xl m-2">
+            No architectural elements match the current view criteria.
+          </div>
+        ) : (
+          displayedNodes.map((node) => {
+            const nodeId = node.id || node._id;
+            const isHovered = hoveredNodeId === nodeId;
+            const isRelated = activeConnectedNodeIds.has(String(nodeId));
+            
+            // Contextual opacity dimming calculation if dependency traces are tracking
+            const isDimmed = hoveredNodeId !== null && !isHovered && !isRelated;
 
-          let relationshipBorderClass = "border-zinc-900/60";
-          let relationshipBgClass = "bg-zinc-900/20";
-          
-          if (hoveredNodeId) {
-            if (isCurrentHoverTarget) {
-              relationshipBorderClass = isFolder ? "border-amber-500 scale-[1.01]" : isFile ? "border-blue-500 scale-[1.01]" : "border-emerald-500 scale-[1.01]";
-              relationshipBgClass = isFolder ? "bg-amber-950/30" : isFile ? "bg-blue-950/30" : "bg-emerald-950/30";
-            } else if (isRelatedToHoverTarget) {
-              relationshipBorderClass = "border-indigo-500/80 ring-1 ring-indigo-500/30";
-              relationshipBgClass = "bg-indigo-950/20";
-            } else {
-              relationshipBgClass = "bg-zinc-950 opacity-25";
-            }
-          } else {
-            if (isFolder) { relationshipBorderClass = "hover:border-amber-700/50"; relationshipBgClass = "bg-amber-950/5"; }
-            else if (isFile) { relationshipBorderClass = "hover:border-blue-700/50"; relationshipBgClass = "bg-blue-950/5"; }
-            else { relationshipBorderClass = "hover:border-emerald-700/50"; relationshipBgClass = "bg-emerald-950/5"; }
-          }
-
-          return (
-            <div
-              key={node.id}
-              onClick={() => handleElementSelection(node)}
-              onMouseEnter={() => setHoveredNodeId(node.id)}
-              onMouseLeave={() => setHoveredNodeId(null)}
-              className={`p-4 rounded-xl border cursor-pointer flex flex-col justify-between min-h-[120px] transition-all duration-200 ease-out active:scale-[0.98] group relative ${relationshipBorderClass} ${relationshipBgClass}`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className={`p-2 rounded-lg transition-colors ${
-                  isFolder ? "bg-amber-950/40 text-amber-400" : isFile ? "bg-blue-950/40 text-blue-400" : "bg-emerald-950/40 text-emerald-400"
-                }`}>
-                  {isFolder ? <Folder size={14} /> : isFile ? <FileCode size={14} /> : <Cpu size={14} />}
+            return (
+              <div
+                key={nodeId}
+                onClick={() => handleElementSelection(node)}
+                onMouseEnter={() => setHoveredNodeId(nodeId)}
+                onMouseLeave={() => setHoveredNodeId(null)}
+                className={`p-5 min-h-[115px] flex flex-col justify-between rounded-xl border transition-all duration-200 cursor-pointer ${
+                  isHovered 
+                    ? "border-indigo-500 bg-zinc-900 shadow-xl scale-[1.01]" 
+                    : isRelated 
+                    ? "border-indigo-500/50 bg-indigo-950/20 shadow-[0_0_12px_rgba(99,102,241,0.05)]" 
+                    : "border-zinc-900 bg-zinc-900/10 hover:border-zinc-800"
+                } ${isDimmed ? "opacity-30 blur-[0.3px]" : "opacity-100"}`}
+              >
+                <div className="flex items-center justify-between gap-2 mb-4">
+                  <div className="flex items-center gap-2">
+                    {node.type === "folder" ? (
+                      <Folder size={15} className="text-amber-500 shrink-0" />
+                    ) : node.type === "file" ? (
+                      <FileCode size={15} className="text-blue-500 shrink-0" />
+                    ) : (
+                      <Cpu size={15} className="text-emerald-500 shrink-0" />
+                    )}
+                    <span className="text-[9px] font-mono text-zinc-600 uppercase tracking-wider">{node.type}</span>
+                  </div>
                 </div>
                 
-                <div className="flex items-center gap-1.5">
-                  {totalConnections > 0 && (
-                    <span className="text-[9px] font-mono bg-zinc-900 px-1.5 py-0.5 rounded text-zinc-500 border border-zinc-800">
-                      links: {totalConnections}
-                    </span>
-                  )}
-                  <span className="text-[9px] font-mono opacity-40 group-hover:opacity-100 transition-opacity uppercase tracking-widest text-zinc-400">
-                    {node.type}
-                  </span>
-                </div>
-                <h4 className="text-xs font-bold text-zinc-200 truncate select-none">{node.label}</h4>
+                <h4 className="text-xs font-bold text-zinc-200 break-all line-clamp-2 select-none leading-relaxed">
+                  {node.label}
+                </h4>
               </div>
 
               <div className="mt-4">

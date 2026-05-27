@@ -1,12 +1,19 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { useVisualizerStore, VisualizerNode, NodeSummaryPayload } from "@/store/use-visualizer-store";
+import React, { useEffect, useState, useRef, useMemo } from "react";
+import { useParams } from "next/navigation";
+import { useVisualizerStore } from "@/store/use-visualizer-store";
 import { CodeCanvas } from "@/components/visualizer/code-canvas";
 import { CodeInspector } from "@/components/visualizer/code-inspector";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Loader2, Network, AlertTriangle, LayoutGrid, X, FileCode } from "lucide-react";
+import { Sparkles, Loader2, Network, X, FileCode } from "lucide-react";
+
+interface TabItem {
+  id: string;
+  label: string;
+  content?: string;
+  type: string;
+}
 
 export default function DeepWorkspaceVisualizerPage() {
   const params = useParams();
@@ -36,89 +43,113 @@ export default function DeepWorkspaceVisualizerPage() {
     resetStore,
   } = useVisualizerStore();
 
+  // Workspace Viewport Resize Widths
+  const [sidebarWidth, setSidebarWidth] = useState(420); 
+  const [inspectorWidth, setInspectorWidth] = useState(340); 
+  
+  const isResizingLeft = useRef(false);
+  const isResizingRight = useRef(false);
+
+  // 1. Multi-Tab Workspace State Tracking
+  const [openTabs, setOpenTabs] = useState<TabItem[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
+
   useEffect(() => {
     if (playgroundId) loadTopologyMapData(playgroundId);
     return () => resetStore();
   }, [playgroundId]);
 
-  const getActiveSummary = (): NodeSummaryPayload | null => {
-    if (!selectedNode) return null;
-    
-    const idOptions = [
-      selectedNode.id,
-      selectedNode._id,
-      selectedNode.data?.id,
-      selectedNode.data?.fileId
-    ];
+  // Synchronize incoming selections from canvas or store into the tab controller
+  useEffect(() => {
+    if (selectedFile) {
+      const fileId = selectedFile.id || selectedFile._id;
+      const tabExists = openTabs.some(tab => tab.id === fileId);
+      
+      if (!tabExists) {
+        const newTab: TabItem = {
+          id: fileId,
+          label: selectedFile.label,
+          content: selectedFile.content,
+          type: selectedFile.type
+        };
+        setOpenTabs(prev => [...prev, newTab]);
+      }
+      setActiveTabId(fileId);
+    }
+  }, [selectedFile]);
 
-    for (const lookupId of idOptions) {
-      if (lookupId && summaries[lookupId]) {
-        return summaries[lookupId];
+  // Handle explicit tab focus selection
+  const handleTabSelect = (tab: TabItem) => {
+    setActiveTabId(tab.id);
+    const correspondingNode = nodes.find(n => (n.id || n._id) === tab.id);
+    if (correspondingNode) {
+      setSelectedFile(correspondingNode);
+      setSelectedNode(correspondingNode);
+    }
+  };
+
+  // Close targeted workspace tab
+  const handleTabClose = (e: React.MouseEvent, tabId: string) => {
+    e.stopPropagation();
+    const remainingTabs = openTabs.filter(t => t.id !== tabId);
+    setOpenTabs(remainingTabs);
+
+    if (activeTabId === tabId) {
+      if (remainingTabs.length > 0) {
+        const nextTab = remainingTabs[remainingTabs.length - 1];
+        handleTabSelect(nextTab);
+      } else {
+        setActiveTabId(null);
+        setSelectedFile(null);
+        // Retain standard inspector focus if a folder or component node is running active
+        if (selectedNode && selectedNode.type === "file") {
+          setSelectedNode(null);
+        }
       }
     }
-
-    if (selectedNode.summary || selectedNode.data?.summary) {
-      return {
-        summary: selectedNode.summary || selectedNode.data?.summary || "",
-        complexity: selectedNode.complexity || selectedNode.data?.complexity || "Low",
-        rawContent: selectedNode.content || selectedNode.data?.content || ""
-      };
-    }
-    
-    return null;
   };
 
-  const currentSummary = getActiveSummary();
-  const activeSelectedId = selectedNode ? (selectedNode.id || selectedNode._id || selectedNode.data?.id) : null;
+  // Resizing mouse pointer trackers
+  const startResizeLeft = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingLeft.current = true;
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", stopResize);
+  };
 
-  const handleElementSelection = async (item: VisualizerNode) => {
-    setSelectedNode(item);
-    const targetId = item?.id || item?._id || item?.data?.id;
-    
-    if (targetId && playgroundId && item.type !== "folder" && item.type !== "folderGroup") {
-      const normalizedType = item.type === "functionNode" || item.type === "function" ? "function" : "file";
-      setIsLeftDrawerOpen(true);
-      await fetchNodeSummary(targetId, playgroundId, normalizedType);
-    } else {
-      setIsLeftDrawerOpen(false);
+  const startResizeRight = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRight.current = true;
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", stopResize);
+  };
+
+  const handleMouseMove = (e: MouseEvent) => {
+    if (isResizingLeft.current) {
+      const newWidth = Math.max(280, Math.min(700, e.clientX));
+      setSidebarWidth(newWidth);
+    }
+    if (isResizingRight.current) {
+      const newWidth = Math.max(280, Math.min(600, window.innerWidth - e.clientX));
+      setInspectorWidth(newWidth);
     }
   };
 
-  const getRawCodeSnippet = () => {
-    if (!selectedNode) return "";
-    
-    const rawContent = 
-      currentSummary?.rawContent || 
-      selectedNode.content || 
-      selectedNode.data?.content || 
-      selectedNode.data?.rawContent;
-
-    if (rawContent && rawContent.trim() !== "") {
-      return rawContent;
-    }
-
-    return `// Source content loaded successfully for: ${selectedNode.label || selectedNode.name || "File"}\n// Path: ${selectedNode.path || selectedNode.data?.path || "/"}\n\nexport default function WorkspaceStub() {\n  console.log("No code block saved in database record for this node.");\n}`;
+  const stopResize = () => {
+    isResizingLeft.current = false;
+    isResizingRight.current = false;
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", stopResize);
   };
+
+  const activeTabContent = useMemo(() => {
+    return openTabs.find(t => t.id === activeTabId);
+  }, [openTabs, activeTabId]);
 
   return (
-    <div className="w-full h-screen p-4 flex flex-col text-zinc-100 bg-zinc-950 overflow-hidden select-none">
-      
-      {/* HEADER CONTROL BLOCK */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-b border-zinc-900 pb-4 shrink-0">
-        <div className="space-y-0.5">
-          <Button
-            onClick={() => router.push("/dashboard")}
-            variant="ghost"
-            size="sm"
-            className="text-zinc-500 hover:text-white -ml-2 text-xs gap-1.5 h-7"
-          >
-            <ArrowLeft size={12} /> Back to Dashboard
-          </Button>
-          <h1 className="text-lg font-black tracking-tight text-white flex items-center gap-2">
-            <Network size={16} className="text-indigo-400" /> Repository Map Explorer
-          </h1>
-        </div>
-
+    <div className="w-full h-screen flex flex-col bg-zinc-950 overflow-hidden relative select-none">
+      {/* HEADER TOP-BAR */}
+      <div className="h-14 border-b border-zinc-900 flex items-center px-4 justify-between shrink-0 bg-zinc-950 z-40">
         <div className="flex items-center gap-3">
           <div className="flex items-center bg-zinc-900 p-0.5 rounded-lg border border-zinc-800">
             <Button
@@ -151,135 +182,108 @@ export default function DeepWorkspaceVisualizerPage() {
             )}
           </Button>
         </div>
+        <Button onClick={() => executeAIAnalysis(playgroundId)} disabled={isPending} className="bg-indigo-600 hover:bg-indigo-700 h-8 text-xs">
+          {isPending ? <Loader2 className="animate-spin mr-2" size={12}/> : <Sparkles className="mr-2" size={12}/>}
+          Parse Architecture
+        </Button>
       </div>
 
-      {/* ERROR FEEDBACK BANNER */}
-      {error && (
-        <div className="p-2.5 my-2 border border-red-900/40 bg-red-950/10 rounded-lg flex items-center gap-2 text-xs font-mono text-red-400 shrink-0">
-          <AlertTriangle size={12} />
-          <span>System Trace Notice: {error}</span>
-        </div>
-
-      {/* FULL LAYOUT VIEWER WINDOW AREA */}
-      <div className="flex-1 mt-4 flex gap-4 items-stretch h-[calc(100vh-140px)] min-h-0 w-full relative">
+      {/* CORE WORKSPACE VIEWPORTS */}
+      <div className="flex-1 flex relative overflow-hidden w-full">
         
-        {/* 💻 LEFT FULL-HEIGHT INTEGRATED CODE WINDOW */}
+        {/* LEFT MULTI-TAB CODE VIEWPORT */}
         <div 
-          className={`h-full shrink-0 bg-zinc-950 border border-zinc-900 rounded-2xl flex flex-col overflow-hidden transition-all duration-300 ease-in-out ${
-            isLeftDrawerOpen 
-              ? "w-[40%] min-w-[380px] opacity-100" 
-              : "w-0 opacity-0 border-none pointer-events-none"
+          style={{ width: openTabs.length > 0 ? `${sidebarWidth}px` : "0px" }}
+          className={`h-full bg-zinc-950/60 backdrop-blur-md border-r border-zinc-900 z-30 relative transition-all duration-300 ease-out flex-shrink-0 overflow-hidden flex flex-col ${
+            openTabs.length > 0 ? "opacity-100" : "opacity-0 pointer-events-none"
           }`}
         >
-          {isLeftDrawerOpen && (
-            <div className="flex flex-col h-full w-full animate-in fade-in duration-200">
-              <div className="p-3 border-b border-zinc-900 flex items-center justify-between bg-zinc-900/30 shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <FileCode size={13} className="text-indigo-400 shrink-0" />
-                  <span className="text-xs font-mono font-bold text-zinc-200 truncate">
-                    {selectedNode?.label || selectedNode?.name || "Source Asset"}
-                  </span>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  className="h-6 w-6 rounded-md hover:bg-zinc-900 text-zinc-400 hover:text-zinc-200"
-                  onClick={() => {
-                    setIsLeftDrawerOpen(false);
-                    setSelectedNode(null);
-                  }}
+          {/* TAB SLOT HEADER CONTAINER */}
+          <div className="flex items-center bg-zinc-950 border-b border-zinc-900 overflow-x-auto scrollbar-none shrink-0 h-11">
+            {openTabs.map((tab) => {
+              const isActive = tab.id === activeTabId;
+              return (
+                <div
+                  key={tab.id}
+                  onClick={() => handleTabSelect(tab)}
+                  className={`h-full flex items-center gap-2 px-4 border-r border-zinc-900 cursor-pointer text-xs font-mono transition-all duration-150 shrink-0 ${
+                    isActive 
+                      ? "bg-zinc-900/60 text-indigo-400 font-bold border-b-2 border-b-indigo-500" 
+                      : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-900/20"
+                  }`}
                 >
-                  <X size={12} />
-                </Button>
-              </div>
-
-              <div className="flex-1 p-3 bg-zinc-950 flex flex-col min-h-0">
-                <div className="rounded-xl border border-zinc-900 bg-zinc-950 overflow-hidden font-mono text-xs flex-1 flex flex-col min-h-0">
-                  <div className="bg-zinc-900/40 px-3 py-1 border-b border-zinc-900 text-[10px] text-zinc-500 tracking-wider flex items-center justify-between select-none shrink-0">
-                    <span>SOURCE READOUT CHANNEL</span>
-                    <span className="text-zinc-600">UTF-8 VIEW</span>
-                  </div>
-                  
-                  <pre className="flex-1 p-4 overflow-auto text-zinc-300 leading-relaxed bg-zinc-950/60 select-text selection:bg-indigo-500/20 font-mono">
-                    <code className="whitespace-pre break-all">
-                      {isInspectorLoading ? (
-                        <div className="flex items-center gap-2 text-zinc-500 italic animate-pulse">
-                          <Loader2 size={12} className="animate-spin text-indigo-500" />
-                          <span>Streaming file buffers...</span>
-                        </div>
-                      ) : (
-                        getRawCodeSnippet()
-                      )}
-                    Prefix</code>
-                  </pre>
+                  <FileCode size={12} className={isActive ? "text-indigo-400" : "text-zinc-600"} />
+                  <span className="max-w-[120px] truncate">{tab.label}</span>
+                  <button 
+                    onClick={(e) => handleTabClose(e, tab.id)}
+                    className="p-0.5 rounded-md hover:bg-zinc-800 text-zinc-600 hover:text-zinc-300 transition-colors"
+                  >
+                    <X size={10} />
+                  </button>
                 </div>
-              </div>
+              );
+            })}
+          </div>
+
+          {/* ACTIVE STREAM STREAM VIEW */}
+          <div className="p-5 flex-1 overflow-y-auto scrollbar-none flex flex-col min-h-0">
+            <div className="flex-1 overflow-y-auto scrollbar-none rounded-xl border border-zinc-900 bg-zinc-950 font-mono text-[11px] text-zinc-300 p-4 leading-relaxed whitespace-pre shadow-inner">
+              {activeTabContent?.content ? (
+                <code className="block text-zinc-300 selection:bg-indigo-500/30 selection:text-white">
+                  {activeTabContent.content}
+                </code>
+              ) : (
+                <span className="text-zinc-600 italic">// Select an open workspace tab or explore canvas components</span>
+              )}
             </div>
-          )}
+          </div>
         </div>
 
-        {/* 🚀 CENTER VIEWPORT CANVASES */}
-        <div className="flex-1 h-full border border-zinc-900 rounded-2xl overflow-hidden bg-zinc-950/40 relative min-w-0">
-          {initialLoading ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950/10">
-              <Loader2 size={20} className="animate-spin text-indigo-500" />
-              <span className="text-xs font-mono text-zinc-500 mt-2">Reading topology logs...</span>
-            </div>
-          ) : status === "ANALYZING" ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center border border-dashed border-indigo-900/40 rounded-2xl bg-zinc-950/40 text-center px-4 animate-pulse">
-              <Loader2 size={24} className="animate-spin text-indigo-500 mb-3" />
-              <h3 className="text-xs font-bold text-indigo-400">Groq Engine Synthesizing AST Tree...</h3>
-            </div>
-          ) : (
-            viewMode === "graph" ? (
-              <CodeCanvas
-                nodes={nodes}
-                edges={edges}
-                summaries={summaries}
-                onNodeSelect={handleElementSelection}
-              />
-            ) : (
-              <div className="w-full h-full p-4 overflow-auto bg-zinc-950/60 select-none">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {nodes.map((item: VisualizerNode) => {
-                    const itemId = item.id || item._id || item.data?.id;
-                    const isSelected = activeSelectedId === itemId;
-                    const rawType = item.type?.replace("Node", "")?.replace("Group", "") || "file";
+        {/* LEFT RESIZE DRAG-STRIP */}
+        {openTabs.length > 0 && (
+          <div 
+            onMouseDown={startResizeLeft}
+            className="w-1 bg-transparent hover:bg-indigo-500/40 active:bg-indigo-500 transition-colors cursor-col-resize h-full z-40 shrink-0"
+          />
+        )}
 
-                    return (
-                      <div
-                        key={itemId}
-                        onClick={() => handleElementSelection(item)}
-                        className={`p-3 rounded-xl border transition-all cursor-pointer text-left ${
-                          isSelected 
-                            ? "bg-indigo-950/30 border-indigo-500 ring-1 ring-indigo-500" 
-                            : "bg-zinc-900/30 border-zinc-800/80 hover:border-zinc-700 hover:bg-zinc-900/50"
-                        }`}
-                      >
-                        <span className={`text-[9px] font-mono px-1 py-0.5 rounded uppercase font-medium tracking-wider mb-2 inline-block ${
-                          rawType === "folder" ? "bg-amber-950/50 text-amber-400" : rawType === "function" ? "bg-emerald-950/50 text-emerald-400" : "bg-blue-950/50 text-blue-400"
-                        }`}>
-                          {rawType}
-                        </span>
-                        <h4 className="text-xs font-bold text-zinc-200 truncate">{item.label || item.name || "Untitled"}</h4>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )
-          )}
+        {/* WORKSPACE MIDDLE LAYER CORE CANVAS */}
+        <div className="flex-1 h-full p-4 overflow-hidden min-w-[300px]">
+          <CodeCanvas 
+            nodes={nodes} 
+            edges={edges} 
+            summaries={summaries} 
+            onNodeSelect={(node) => {
+              setSelectedNode(node);
+              if (node.type === "file") {
+                setSelectedFile(node);
+              }
+            }} 
+          />
         </div>
 
-        {/* 📊 FIXED RIGHT DOCK SIDEBAR */}
-        <div className="w-80 h-full shrink-0">
-          <CodeInspector
-            node={selectedNode}
-            summary={currentSummary}
-            onClose={() => {
-              setSelectedNode(null);
-              setIsLeftDrawerOpen(false);
-            }}
+        {/* RIGHT RESIZE DRAG-STRIP */}
+        {selectedNode && (
+          <div 
+            onMouseDown={startResizeRight}
+            className="w-1 bg-transparent hover:bg-indigo-500/40 active:bg-indigo-500 transition-colors cursor-col-resize h-full z-40 shrink-0"
+          />
+        )}
+
+        {/* RIGHT ANALYSIS VIEWPORT INSPECTOR */}
+        <div 
+          style={{ width: selectedNode ? `${inspectorWidth}px` : "0px" }}
+          className={`h-full z-30 shrink-0 transition-all duration-300 ease-out overflow-hidden ${
+            selectedNode ? "opacity-100" : "opacity-0 pointer-events-none"
+          }`}
+        >
+          <CodeInspector 
+            node={selectedNode} 
+            summary={summaries?.[selectedNode?.id || selectedNode?._id]} 
+            onClose={() => { 
+              setSelectedNode(null); 
+              setSelectedFile(null);
+            }} 
           />
         </div>
 
