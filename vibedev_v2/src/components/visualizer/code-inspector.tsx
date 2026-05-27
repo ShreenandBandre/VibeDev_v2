@@ -5,19 +5,22 @@ import { X, BookOpen, Cpu, Code2, AlertTriangle, MessageSquare, ShieldAlert, Sen
 
 interface CodeInspectorProps {
   node: any;
-  summary: any;
+  summary: any; // Fallback context snapshot
   onClose: () => void;
 }
 
-export function CodeInspector({ node, summary, onClose }: CodeInspectorProps) {
-  const [activeTab, setActiveTab] = useState<"overview" | "mechanics" | "usage" | "debugging" | "chat" | "predict">("overview");
+export function CodeInspector({ node, summary: initialSummary, onClose }: CodeInspectorProps) {
+  const [activeTab, setActiveTab] = useState<"overview" | "mechanics" | "usage" | "debugging" | "chat" | "predict" | "metrics">("overview");
   const [chatInput, setChatInput] = useState("");
   const [predictInput, setPredictInput] = useState("");
   
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const { askNodeQuestion, predictCodeChanges, chatHistories, isActionPending } = useVisualizerStore();
+  const { askNodeQuestion, predictCodeChanges, chatHistories, isActionPending, summaries } = useVisualizerStore();
 
   const nodeId = String(node?.id || node?._id || "");
+  
+  // Directly bind onto global reactive Zustand maps to guarantee hot updates
+  const liveSummary = summaries[nodeId] || initialSummary;
   const activeChat = chatHistories[nodeId] || [];
 
   useEffect(() => {
@@ -25,13 +28,13 @@ export function CodeInspector({ node, summary, onClose }: CodeInspectorProps) {
   }, [activeChat, activeTab]);
 
   if (!node) return null;
-  const isLoading = summary?.loading;
+  const isLoading = liveSummary?.loading;
 
   const complexityColors = {
     Low: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
     Medium: "bg-amber-500/10 text-amber-400 border-amber-500/20",
     High: "bg-rose-500/10 text-rose-400 border-rose-500/20",
-  }[((summary?.complexity as "Low" | "Medium" | "High") || "Low")] || "bg-zinc-800 text-zinc-400";
+  }[((liveSummary?.complexity as "Low" | "Medium" | "High") || "Low")] || "bg-zinc-800 text-zinc-400";
 
   const handleSendChat = (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,35 +105,35 @@ export function CodeInspector({ node, summary, onClose }: CodeInspectorProps) {
                 <div className="space-y-3">
                   <div className="flex items-center justify-between border border-zinc-900 rounded-lg p-2.5 bg-zinc-950/40">
                     <span className="text-zinc-500 text-[11px]">Cognitive Weight Scope:</span>
-                    <span className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded border ${complexityColors}`}>{summary?.complexity || "Low"}</span>
+                    <span className={`text-[10px] uppercase font-mono px-2 py-0.5 rounded border ${complexityColors}`}>{liveSummary?.complexity || "Low"}</span>
                   </div>
                   <h3 className="text-zinc-400 font-mono text-[10px] uppercase tracking-wider">Architectural Objective</h3>
-                  <p className="bg-zinc-900/30 border border-zinc-900/60 p-3 rounded-lg italic text-zinc-300">"{summary?.summary || "Click Analyze to sync maps."}"</p>
+                  <p className="bg-zinc-900/30 border border-zinc-900/60 p-3 rounded-lg italic text-zinc-300">"{liveSummary?.summary || "Click Analyze to sync maps."}"</p>
                 </div>
               )}
 
               {activeTab === "mechanics" && (
                 <div className="space-y-2">
                   <h3 className="text-zinc-400 font-mono text-[10px] uppercase tracking-wider">Internal Step Breakdown</h3>
-                  <div className="whitespace-pre-wrap font-mono text-[11px] text-zinc-400 bg-zinc-900/20 p-3 border border-zinc-900 rounded-lg leading-relaxed">{summary?.howItWorks}</div>
+                  <div className="whitespace-pre-wrap font-mono text-[11px] text-zinc-400 bg-zinc-900/20 p-3 border border-zinc-900 rounded-lg leading-relaxed">{liveSummary?.howItWorks}</div>
                 </div>
               )}
 
               {activeTab === "usage" && (
                 <div className="space-y-2">
                   <h3 className="text-zinc-400 font-mono text-[10px] uppercase tracking-wider">Consumption Standard</h3>
-                  <div className="whitespace-pre-wrap font-mono text-[11px] text-amber-200/90 bg-zinc-950 border border-zinc-900 p-3 rounded-lg select-all">{summary?.howToUse}</div>
+                  <div className="whitespace-pre-wrap font-mono text-[11px] text-amber-200/90 bg-zinc-950 border border-zinc-900 p-3 rounded-lg select-all">{liveSummary?.howToUse}</div>
                 </div>
               )}
 
               {activeTab === "debugging" && (
                 <div className="space-y-2">
                   <h3 className="text-rose-400 font-mono text-[10px] uppercase tracking-wider">Engineering Vulnerabilities</h3>
-                  <div className="p-3 rounded-lg bg-rose-950/10 border border-rose-900/20 text-zinc-300 whitespace-pre-wrap leading-relaxed">{summary?.debuggingHazards || "No immediate defects detected."}</div>
+                  <div className="p-3 rounded-lg bg-rose-950/10 border border-rose-900/20 text-zinc-300 whitespace-pre-wrap leading-relaxed">{liveSummary?.debuggingHazards || "No immediate defects detected."}</div>
                 </div>
               )}
 
-              {/* FEATURE 2 UI: Embedded AI Conversation Terminal */}
+              {/* Embedded AI Conversation Terminal */}
               {activeTab === "chat" && (
                 <div className="h-full flex flex-col justify-between space-y-2">
                   <div className="flex-1 overflow-y-auto space-y-3 pr-1 scrollbar-none">
@@ -155,17 +158,17 @@ export function CodeInspector({ node, summary, onClose }: CodeInspectorProps) {
                 </div>
               )}
 
-              {/* FEATURE 1 UI: Architectural "What-If" Impact Sandbox */}
+              {/* Architectural "What-If" Impact Sandbox */}
               {activeTab === "predict" && (
                 <div className="space-y-4 h-full flex flex-col justify-between">
                   <div className="space-y-3 flex-1 overflow-y-auto scrollbar-none">
                     <div className="p-3 bg-indigo-950/10 border border-indigo-900/20 text-zinc-400 rounded-lg leading-relaxed font-sans">
                       Input structural refactors (e.g., *"Change returning parameters from array to objects"*), and simulate impact across the codebase.
                     </div>
-                    {summary?.predictionInsight && (
+                    {liveSummary?.predictionInsight && (
                       <div className="space-y-2 border-t border-zinc-900 pt-3">
                         <span className="text-amber-400 font-mono text-[10px] uppercase tracking-wider flex items-center gap-1"><Sparkles size={11}/> Simulation Report:</span>
-                        <div className="p-3 bg-zinc-900/40 border border-zinc-900 text-zinc-300 font-mono text-[11px] whitespace-pre-wrap leading-relaxed">{summary.predictionInsight}</div>
+                        <div className="p-3 bg-zinc-900/40 border border-zinc-900 text-zinc-300 font-mono text-[11px] whitespace-pre-wrap leading-relaxed">{liveSummary.predictionInsight}</div>
                       </div>
                     )}
                   </div>

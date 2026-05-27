@@ -4,7 +4,7 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useVisualizerStore } from "@/store/use-visualizer-store";
-import { Folder, FileCode, Cpu, Link2, RotateCcw, ChevronRight, Search, Zap, Download } from "lucide-react";
+import { Folder, FileCode, Cpu, Link2, ChevronRight, Search, Zap, Download } from "lucide-react";
 
 interface CanvasProps {
   nodes: any[];
