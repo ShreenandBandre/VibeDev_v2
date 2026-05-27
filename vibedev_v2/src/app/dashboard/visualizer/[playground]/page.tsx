@@ -6,11 +6,12 @@ import { useParams } from "next/navigation";
 import { useVisualizerStore } from "@/store/use-visualizer-store";
 import { CodeCanvas } from "@/components/visualizer/code-canvas";
 import { CodeInspector } from "@/components/visualizer/code-inspector";
-import { Button } from "@/components/ui/button";
-import { 
-  Sparkles, Loader2, Network, X, FileCode, MessageSquare, ShieldAlert, Send, 
-  Maximize2, Minimize2, Clock, Play, Pause 
-} from "lucide-react";
+import { getUserWorkspaces } from "@/app/actions/get-user-workspaces";
+
+// Import Refactored Components
+import { TopToolbar } from "@/components/visualizer/top-toolbar";
+import { TabsEditorPanel } from "@/components/visualizer/tabs-editor-panel";
+import { SandboxPredictorPanel } from "@/components/visualizer/sandbox-predictor-panel";
 
 interface TabItem {
   id: string;
@@ -19,53 +20,20 @@ interface TabItem {
   type: string;
 }
 
-function HighlightedCodeText({ code }: { code: string }) {
-  if (!code) return null;
-  const lines = code.split("\n");
-
-  return (
-    <div className="font-mono text-[11px] leading-relaxed text-zinc-200 pointer-events-none">
-      {lines.map((line, lineIdx) => {
-        if (line.trim().startsWith("//") || line.trim().startsWith("*") || line.trim().startsWith("/*")) {
-          return <div key={lineIdx} className="text-zinc-400 italic min-h-[1.5em]">{line}</div>;
-        }
-        const tokenRegex = /(\/\/.*|(['"`])(.*?)\2|\b(const|let|var|function|return|import|from|export|default|async|await|if|else|try|catch|class|interface|extends|new|response|status)\b|[-+*\/=<>!]+|\b\d+\b)/g;
-        const parts = line.split(tokenRegex);
-        return (
-          <div key={lineIdx} className="min-h-[1.5em] whitespace-pre">
-            {parts.map((part, partIdx) => {
-              if (!part) return null;
-              if (part.startsWith("//")) return <span key={partIdx} className="text-zinc-400 italic">{part}</span>;
-              if ((part.startsWith("'") && part.endsWith("'")) || (part.startsWith('"') && part.endsWith('"')) || (part.startsWith('`') && part.endsWith('`'))) {
-                return <span key={partIdx} className="text-amber-300 font-medium">{part}</span>;
-              }
-              if (['const', 'let', 'var', 'function', 'return', 'import', 'from', 'export', 'default', 'async', 'await', 'if', 'else', 'try', 'catch', 'class', 'interface', 'extends', 'new'].includes(part)) {
-                return <span key={partIdx} className="text-pink-400 font-semibold">{part}</span>;
-              }
-              if (['response', 'status'].includes(part)) return <span key={partIdx} className="text-sky-400 font-medium">{part}</span>;
-              if (/^\d+$/.test(part)) return <span key={partIdx} className="text-emerald-400">{part}</span>;
-              if (/^[-+*\/=<>!]+$/.test(part)) return <span key={partIdx} className="text-indigo-400">{part}</span>;
-              return <span key={partIdx}>{part}</span>;
-            })}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 export default function DeepWorkspaceVisualizerPage() {
   const params = useParams();
   const playgroundId = Array.isArray(params?.playground) ? params.playground[0] : (params?.playground || "");
 
   const {
-    nodes, edges, summaries, isPending, selectedNode, selectedFile, metricsOverlayMode, chatHistories, isActionPending,
-    setSelectedNode, setSelectedFile, setMetricsOverlayMode, loadTopologyMapData, executeAIAnalysis, askNodeQuestion, predictCodeChanges, resetStore,
+    nodes, edges, summaries, isPending, selectedNode, selectedFile, metricsOverlayMode, isActionPending,
+    availableWorkspaces, activeWorkspace, setAvailableWorkspaces, setActiveWorkspace,
+    setSelectedNode, setSelectedFile, setMetricsOverlayMode, loadTopologyMapData, executeAIAnalysis, predictCodeChanges, resetStore,
   } = useVisualizerStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(440); 
   const [inspectorWidth, setInspectorWidth] = useState(340); 
+  const [workspaceDropdownOpen, setWorkspaceDropdownOpen] = useState(false);
   
   const isResizingLeft = useRef(false);
   const isResizingRight = useRef(false);
@@ -74,49 +42,35 @@ export default function DeepWorkspaceVisualizerPage() {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [editableCodeString, setEditableCodeString] = useState("");
 
-  // Control interface panel states
   const [isTerminalOpen, setIsTerminalOpen] = useState(false);
   const [isSandboxOpen, setIsSandboxOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [chatInput, setChatInput] = useState("");
   const [predictInput, setPredictInput] = useState("");
-
-  // Timeline & Time Travel Simulation States
   const [timelineStep, setTimelineStep] = useState(0);
-  const [isPlayingTimeline, setIsPlayingTimeline] = useState(false);
-  const timelineIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const maxTimelineSteps = 4;
-  
-  const chatEndRef = useRef<HTMLDivElement>(null);
+
   const activeNodeId = selectedNode ? String(selectedNode.id || selectedNode._id) : "";
-  const activeChat = chatHistories[activeNodeId] || [];
+
+  // Synchronize initial workspaces
+  useEffect(() => {
+    async function synchronizeWorkspaces() {
+      try {
+        const payload = await getUserWorkspaces();
+        if (payload && payload.workspaces) {
+          setAvailableWorkspaces(payload.workspaces);
+          const defaultSpace = payload.workspaces.find(w => w.type === "PERSONAL") || payload.workspaces[0];
+          setActiveWorkspace(defaultSpace);
+        }
+      } catch (err) {
+        console.error("Workspace configuration mismatch:", err);
+      }
+    }
+    synchronizeWorkspaces();
+  }, []);
 
   useEffect(() => {
     if (playgroundId) loadTopologyMapData(playgroundId);
     return () => resetStore();
   }, [playgroundId]);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeChat, isTerminalOpen]);
-
-  // Handle playing execution flow simulation steps
-  useEffect(() => {
-    if (isPlayingTimeline) {
-      timelineIntervalRef.current = setInterval(() => {
-        setTimelineStep((prev) => {
-          if (prev >= maxTimelineSteps) {
-            setIsPlayingTimeline(false);
-            return prev;
-          }
-          return prev + 1;
-        });
-      }, 1500);
-    } else {
-      if (timelineIntervalRef.current) clearInterval(timelineIntervalRef.current);
-    }
-    return () => { if (timelineIntervalRef.current) clearInterval(timelineIntervalRef.current); };
-  }, [isPlayingTimeline]);
 
   useEffect(() => {
     if (!activeTabId) {
@@ -206,13 +160,6 @@ export default function DeepWorkspaceVisualizerPage() {
     setOpenTabs(prev => prev.map(tab => tab.id === activeTabId ? { ...tab, content: freshValue } : tab));
   };
 
-  const handleSendChat = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!chatInput.trim() || isActionPending || !activeNodeId) return;
-    askNodeQuestion(activeNodeId, chatInput.trim());
-    setChatInput("");
-  };
-
   const handleRunPrediction = () => {
     if (!predictInput.trim() || isActionPending || !activeNodeId) return;
     predictCodeChanges(activeNodeId, predictInput.trim());
@@ -247,133 +194,42 @@ export default function DeepWorkspaceVisualizerPage() {
   return (
     <div ref={containerRef} className="w-full h-screen flex flex-col bg-zinc-900 overflow-hidden relative select-none text-zinc-100 font-sans antialiased">
       
-      {/* SLIM HEADER TOOLBAR PANEL */}
-      <div className="h-10 border-b border-zinc-800 flex items-center px-3 justify-between shrink-0 bg-zinc-900 relative z-40">
-        
-        {/* Left Hand Indicator */}
-        <div className="flex items-center gap-2">
-          <Network size={13} className="text-indigo-400" />
-          <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider font-semibold">Workspace Engine</span>
-        </div>
+      <TopToolbar 
+        workspaceDropdownOpen={workspaceDropdownOpen}
+        setWorkspaceDropdownOpen={setWorkspaceDropdownOpen}
+        activeWorkspace={activeWorkspace}
+        availableWorkspaces={availableWorkspaces}
+        setActiveWorkspace={setActiveWorkspace}
+        onWorkspaceChange={() => playgroundId && loadTopologyMapData(playgroundId)}
+        metricsOverlayMode={metricsOverlayMode}
+        setMetricsOverlayMode={setMetricsOverlayMode}
+        isTerminalOpen={isTerminalOpen}
+        setIsTerminalOpen={setIsTerminalOpen}
+        isSandboxOpen={isSandboxOpen}
+        setIsSandboxOpen={setIsSandboxOpen}
+        isFullscreen={isFullscreen}
+        toggleFullscreen={toggleFullscreenViewport}
+        selectedNode={selectedNode}
+        executeAIAnalysis={() => executeAIAnalysis(playgroundId)}
+        isPending={isPending}
+      />
 
-        {/* ABSOLUTE CENTER TITLE Configuration */}
-        <div className="absolute left-1/3 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none select-none">
-          <div className="w-1 h-1 bg-emerald-400 rounded-full animate-pulse" />
-          <h1 className="text-[11px] font-mono font-bold tracking-widest uppercase text-zinc-300">Architecture Explorer</h1>
-        </div>
-
-        {/* Right Hand Control Triggers Layout */}
-        <div className="flex items-center gap-2">
-          
-          {/* Metric Scalar Overlay Selection Strip */}
-          <div className="flex items-center gap-0.5 border border-zinc-800 bg-zinc-800/40 p-0.5 rounded-md h-7">
-            {[
-              { id: "none", label: "Default Map" },
-              { id: "lines", label: "LOC" },
-              { id: "edges", label: "Coupling" }
-            ].map((mode) => (
-              <button
-                key={mode.id}
-                onClick={() => {
-                  setMetricsOverlayMode(mode.id as any);
-                  if (playgroundId) loadTopologyMapData(playgroundId);
-                }}
-                className={`text-[9px] font-mono px-2 py-0.5 rounded transition-all h-full ${
-                  metricsOverlayMode === mode.id ? "bg-zinc-700 text-indigo-300 font-bold border border-zinc-600" : "text-zinc-400 hover:text-zinc-200"
-                }`}
-              >
-                {mode.label}
-              </button>
-            ))}
-          </div>
-
-          <button 
-            onClick={() => { setIsTerminalOpen(p => !p); setIsSandboxOpen(false); }}
-            disabled={!selectedNode}
-            className={`h-7 px-2.5 rounded-md text-[10px] font-mono font-medium border flex items-center gap-1.5 transition-all ${isTerminalOpen ? "bg-indigo-600/10 text-indigo-300 border-indigo-500/40" : "bg-zinc-800/40 border-zinc-700 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800"}`}
-          >
-            <MessageSquare size={11} /> Use AI Query
-          </button>
-
-          <button 
-            onClick={() => { setIsSandboxOpen(p => !p); setIsTerminalOpen(false); }}
-            disabled={!selectedNode}
-            className={`h-7 px-2.5 rounded-md text-[10px] font-mono font-medium border flex items-center gap-1.5 transition-all ${isSandboxOpen ? "bg-amber-600/10 text-amber-300 border-amber-500/40" : "bg-zinc-800/40 border-zinc-700 text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800"}`}
-          >
-            <ShieldAlert size={11} /> What-If Sandbox
-          </button>
-
-          {/* DYNAMIC FULL-SCREEN TOGGLER */}
-          <button 
-            onClick={toggleFullscreenViewport}
-            className="h-7 px-2.5 bg-zinc-800/40 border border-zinc-700 hover:bg-zinc-800 text-zinc-300 hover:text-zinc-100 rounded-md text-[10px] font-mono flex items-center gap-1 transition-all"
-            title="Toggle presentation focus screen"
-          >
-            {isFullscreen ? <Minimize2 size={11} /> : <Maximize2 size={11} />}
-            <span>{isFullscreen ? "Exit" : "Full Screen"}</span>
-          </button>
-
-          <Button onClick={() => executeAIAnalysis(playgroundId)} disabled={isPending} className="bg-indigo-600 hover:bg-indigo-700 h-7 text-[10px] font-bold px-3 text-white">
-            {isPending ? <Loader2 className="animate-spin mr-1.5" size={11}/> : <Sparkles className="mr-1.5" size={11}/>}
-            Parse
-          </Button>
-        </div>
-      </div>
-
-      {/* Core Split Body Layout */}
       <div className="flex-1 flex relative overflow-hidden w-full bg-zinc-900">
         
-        {/* Code Editor Window */}
-        <div 
-          style={{ width: openTabs.length > 0 ? `${sidebarWidth}px` : "0px" }}
-          className={`h-full bg-zinc-900 border-r border-zinc-800 z-30 relative transition-all duration-300 ease-out flex-shrink-0 overflow-hidden flex flex-col ${openTabs.length > 0 ? "opacity-100" : "opacity-0 pointer-events-none"}`}
-        >
-          <div className="flex items-center bg-zinc-900 border-b border-zinc-800 overflow-x-auto scrollbar-none shrink-0 h-9">
-            {openTabs.map((tab) => {
-              const isActive = tab.id === activeTabId;
-              return (
-                <div
-                  key={tab.id}
-                  onClick={() => handleTabSelect(tab)}
-                  className={`h-full flex items-center gap-2 px-3 border-r border-zinc-800 cursor-pointer text-[11px] font-mono transition-all duration-150 shrink-0 ${isActive ? "bg-zinc-800/60 text-indigo-400 font-bold border-b border-b-indigo-500" : "text-zinc-400 hover:text-zinc-200"}`}
-                >
-                  <FileCode size={11} />
-                  <span className="max-w-[110px] truncate">{tab.label}</span>
-                  <button onClick={(e) => handleTabClose(e, tab.id)} className="p-0.5 rounded hover:bg-zinc-700 text-zinc-500 hover:text-zinc-200 transition-colors">
-                    <X size={9} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="p-3 flex-1 overflow-y-auto scrollbar-none flex flex-col min-h-0">
-            <div className="flex-1 overflow-y-auto scrollbar-none rounded-lg border border-zinc-800 bg-zinc-900/60 p-4 relative min-h-[150px]">
-              {activeTabId ? (
-                <div className="absolute inset-4 overflow-auto font-mono text-[11px]">
-                  <div className="absolute top-0 left-0 w-full min-h-full p-0 pointer-events-none z-10">
-                    <HighlightedCodeText code={editableCodeString} />
-                  </div>
-                  <textarea
-                    value={editableCodeString}
-                    onChange={handleCodeWorkspaceInput}
-                    spellCheck={false}
-                    className="absolute top-0 left-0 w-full min-h-full bg-transparent text-transparent caret-indigo-400 resize-none outline-none overflow-hidden font-mono text-[11px] leading-relaxed p-0 whitespace-pre selection:bg-indigo-500/30 selection:text-transparent z-20"
-                    placeholder="// Modifying architecture layouts here..."
-                  />
-                </div>
-              ) : (
-                <span className="text-zinc-500 italic font-mono text-[11px]">// Click an open codebase module slot...</span>
-              )}
-            </div>
-          </div>
-        </div>
+        <TabsEditorPanel 
+          width={sidebarWidth}
+          openTabs={openTabs}
+          activeTabId={activeTabId}
+          editableCodeString={editableCodeString}
+          handleTabSelect={handleTabSelect}
+          handleTabClose={handleTabClose}
+          handleCodeWorkspaceInput={handleCodeWorkspaceInput}
+        />
 
         {openTabs.length > 0 && (
           <div onMouseDown={startResizeLeft} className="w-0.5 bg-transparent hover:bg-indigo-500/40 active:bg-indigo-500 transition-colors cursor-col-resize h-full z-40 shrink-0" />
         )}
 
-        {/* Central Component Grid Canvas Viewport */}
         <div className="flex-1 h-full p-3 overflow-hidden min-w-[300px] relative bg-zinc-900/50">
           <CodeCanvas 
             nodes={nodes} 
@@ -386,72 +242,17 @@ export default function DeepWorkspaceVisualizerPage() {
             }} 
           />
 
-         
-
-          {/* Standalone Panel 1: Floating Conversational AI Terminal */}
-          {isTerminalOpen && selectedNode && (
-            <div className="absolute bottom-3 right-3 w-[380px] h-[400px] bg-zinc-800/95 border border-zinc-700 rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden backdrop-blur-md animate-in slide-in-from-bottom-2 duration-150">
-              <div className="p-2.5 border-b border-zinc-700 bg-zinc-900/40 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2 text-[11px] font-mono font-bold text-indigo-400">
-                  <MessageSquare size={12} />
-                  <span className="truncate max-w-[240px]">Terminal: {selectedNode.label || "Module"}</span>
-                </div>
-                <button onClick={() => setIsTerminalOpen(false)} className="text-zinc-400 hover:text-zinc-200"><X size={13}/></button>
-              </div>
-              <div className="flex-1 p-3 overflow-y-auto space-y-3 scrollbar-none text-[11px]">
-                {activeChat.length === 0 && (
-                  <div className="text-center text-zinc-400 italic mt-20 font-mono text-[10px]">// Query state flows or write component implementations...</div>
-                )}
-                {activeChat.map((msg, i) => (
-                  <div key={i} className={`flex flex-col max-w-[85%] rounded-lg p-2 font-sans leading-relaxed ${msg.role === "user" ? "bg-indigo-600/10 border border-indigo-500/20 text-indigo-200 ml-auto" : "bg-zinc-700 text-zinc-200"}`}>
-                    <span className="text-[8px] font-mono uppercase text-zinc-400 mb-0.5">{msg.role === "user" ? "You" : "AI"}</span>
-                    <div className="whitespace-pre-wrap text-[11px] font-sans">{msg.text}</div>
-                  </div>
-                ))}
-                {isActionPending && (
-                  <div className="bg-zinc-700/30 border border-zinc-700 text-zinc-400 rounded-lg p-2 mr-auto animate-pulse font-mono text-[10px]">Processing matrix traces...</div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
-              <form onSubmit={handleSendChat} className="p-1.5 border-t border-zinc-700 bg-zinc-800 flex gap-1.5 shrink-0">
-                <input value={chatInput} onChange={e => setChatInput(e.target.value)} placeholder="Ask about this module logic..." className="flex-1 bg-zinc-900 border border-zinc-700 rounded-md px-2.5 py-1 text-[11px] text-white outline-none focus:border-indigo-500/50 placeholder-zinc-500" />
-                <button type="submit" disabled={isActionPending || !chatInput.trim()} className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white p-1.5 rounded-md transition-all"><Send size={11} /></button>
-              </form>
-            </div>
-          )}
-
-          {/* Standalone Panel 2: Floating Structural Sandbox Predictor */}
           {isSandboxOpen && selectedNode && (
-            <div className="absolute bottom-3 right-3 w-[400px] h-[400px] bg-zinc-800/95 border border-zinc-700 rounded-xl shadow-2xl z-50 flex flex-col overflow-hidden backdrop-blur-md animate-in slide-in-from-bottom-2 duration-150">
-              <div className="p-2.5 border-b border-zinc-700 bg-zinc-900/40 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2 text-[11px] font-mono font-bold text-amber-400">
-                  <ShieldAlert size={12} />
-                  <span className="truncate max-w-[240px]">Sandbox: {selectedNode.label || "Module"}</span>
-                </div>
-                <button onClick={() => setIsSandboxOpen(false)} className="text-zinc-400 hover:text-zinc-200"><X size={13}/></button>
-              </div>
-              <div className="flex-1 p-3 overflow-y-auto space-y-3 scrollbar-none text-[11px]">
-                <div className="p-2.5 bg-amber-950/10 border border-amber-900/20 text-zinc-300 rounded-lg leading-relaxed font-sans">
-                  Simulate refactoring changes to trace cascading breakages or structural side effects across your wider codebase graph tree layout.
-                </div>
-                {summaries?.[activeNodeId]?.predictionInsight && (
-                  <div className="space-y-1.5 border-t border-zinc-700 pt-2.5">
-                    <span className="text-amber-400 font-mono text-[9px] uppercase tracking-wider font-semibold">Simulation Report:</span>
-                    <div className="p-2.5 bg-zinc-900/40 border border-zinc-700 text-zinc-200 font-mono text-[11px] whitespace-pre-wrap leading-relaxed">{summaries[activeNodeId].predictionInsight}</div>
-                  </div>
-                )}
-                {isActionPending && (
-                  <div className="bg-zinc-700/30 border border-zinc-700 text-zinc-400 rounded-lg p-2.5 animate-pulse font-mono text-[10px]">Analyzing coupling layers...</div>
-                )}
-              </div>
-              <div className="p-2.5 border-t border-zinc-700 bg-zinc-800 space-y-1.5 shrink-0">
-                <textarea value={predictInput} onChange={e => setPredictInput(e.target.value)} placeholder="Describe proposed modifications here..." className="w-full bg-zinc-900 border border-zinc-700 rounded-md p-2 text-[11px] text-white focus:outline-none focus:border-amber-500/50 resize-none h-12 placeholder-zinc-500" />
-                <Button onClick={handleRunPrediction} disabled={isActionPending || !predictInput.trim()} className="w-full bg-amber-600 hover:bg-amber-700 text-white font-medium text-[11px] h-7 rounded-md flex items-center justify-center gap-1 transition-all">
-                  {isActionPending ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={11} />}
-                  Run Change Prediction Matrix
-                </Button>
-              </div>
-            </div>
+            <SandboxPredictorPanel 
+              selectedNode={selectedNode}
+              activeNodeId={activeNodeId}
+              summaries={summaries}
+              isActionPending={isActionPending}
+              predictInput={predictInput}
+              setPredictInput={setPredictInput}
+              handleRunPrediction={handleRunPrediction}
+              setIsSandboxOpen={setIsSandboxOpen}
+            />
           )}
         </div>
 
@@ -459,7 +260,6 @@ export default function DeepWorkspaceVisualizerPage() {
           <div onMouseDown={startResizeRight} className="w-0.5 bg-transparent hover:bg-indigo-500/40 active:bg-indigo-500 transition-colors cursor-col-resize h-full z-40 shrink-0" />
         )}
 
-        {/* Right-Hand Architectural Documentation Inspector Sidebar */}
         <div style={{ width: selectedNode ? `${inspectorWidth}px` : "0px" }} className={`h-full z-30 shrink-0 transition-all duration-300 ease-out overflow-hidden ${selectedNode ? "opacity-100" : "opacity-0 pointer-events-none"}`}>
           <CodeInspector node={selectedNode} summary={summaries?.[selectedNode?.id || selectedNode?._id]} onClose={() => { setSelectedNode(null); setSelectedFile(null); }} />
         </div>

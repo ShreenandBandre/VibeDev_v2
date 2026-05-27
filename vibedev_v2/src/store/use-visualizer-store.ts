@@ -12,7 +12,7 @@ interface NodeSummary {
   howItWorks?: string;
   howToUse?: string;
   debuggingHazards?: string;
-  predictionInsight?: string; // Cache for structural impacts
+  predictionInsight?: string;
 }
 
 interface ChatMessage {
@@ -20,21 +20,35 @@ interface ChatMessage {
   text: string;
 }
 
+interface WorkspaceInfo {
+  id: string;
+  name: string;
+  slug: string;
+  type: "PERSONAL" | "ORGANIZATION";
+  role: string;
+  imageUrl?: string | null;
+}
+
 interface VisualizerState {
   status: string;
   nodes: any[];
   edges: any[];
   summaries: Record<string, NodeSummary>;
-  chatHistories: Record<string, ChatMessage[]>; // Feature 2: Persistent context chats per node
-  metricsOverlayMode: "none" | "lines" | "edges"; // Feature 3: Live sizing metrics
+  chatHistories: Record<string, ChatMessage[]>;
+  metricsOverlayMode: "none" | "lines" | "edges";
   initialLoading: boolean;
   isPending: boolean;
   isInspectorLoading: boolean;
-  isActionPending: boolean; // For chat/prediction progress spinners
+  isActionPending: boolean;
   selectedNode: any | null;
   selectedFile: any | null;
   error: string | null;
   pollingIntervalId: NodeJS.Timeout | null;
+
+  // NEW: Multi-Tenant Workspace Presence Channels
+  availableWorkspaces: WorkspaceInfo[];
+  activeWorkspace: WorkspaceInfo | null;
+  multiplayerCursors: Record<string, { x: number; y: number; name: string; color: string }>;
 
   setSelectedNode: (node: any | null) => void;
   setSelectedFile: (file: any | null) => void;
@@ -47,6 +61,10 @@ interface VisualizerState {
   startPollingStatus: (playgroundId: string) => void;
   stopPollingStatus: () => void;
   resetStore: () => void;
+
+  // NEW ACTIONS
+  setAvailableWorkspaces: (workspaces: WorkspaceInfo[]) => void;
+  setActiveWorkspace: (workspace: WorkspaceInfo | null) => void;
 }
 
 export const useVisualizerStore = create<VisualizerState>((set, get) => ({
@@ -65,9 +83,16 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
   error: null,
   pollingIntervalId: null,
 
+  // Default Init states
+  availableWorkspaces: [],
+  activeWorkspace: null,
+  multiplayerCursors: {},
+
   setSelectedNode: (node) => set({ selectedNode: node }),
   setSelectedFile: (file) => set({ selectedFile: file }),
   setMetricsOverlayMode: (mode) => set({ metricsOverlayMode: mode }),
+  setAvailableWorkspaces: (workspaces) => set({ availableWorkspaces: workspaces }),
+  setActiveWorkspace: (workspace) => set({ activeWorkspace: workspace }),
 
   loadTopologyMapData: async (playgroundId: string) => {
     if (!playgroundId) return;
@@ -79,19 +104,16 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
         const currentMode = get().metricsOverlayMode;
         const currentEdges = res.edges || [];
         
-        // FEATURE 3: Compute live metrics engine overlays on the fly
         const mergedNodes = (res.nodes || []).map((freshNode: any) => {
           const freshId = String(freshNode.id || freshNode._id);
           const matchedOldNode = previousNodes.find((oldNode: any) => String(oldNode.id || oldNode._id) === freshId);
           const activeContent = freshNode.content || matchedOldNode?.content || "";
           
-          // Calculators
           const lineCount = activeContent.split("\n").length;
           const connectedEdgesCount = currentEdges.filter(
             (e: any) => String(e.source) === freshId || String(e.target) === freshId
           ).length;
 
-          // Compute custom size scalars based on active menu layout filters
           let sizeModifier = 1.0;
           if (currentMode === "lines") {
             sizeModifier = Math.min(2.5, Math.max(1.0, lineCount / 80));
@@ -104,7 +126,6 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
             type: freshNode.type || "file",
             label: freshNode.label || "Unnamed Resource",
             content: activeContent,
-            // Expose properties to CodeCanvas component
             metrics: { lineCount, edgeCount: connectedEdgesCount },
             visualScale: sizeModifier 
           };
@@ -203,7 +224,6 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
     } catch (err) { console.error(err); } finally { set({ isInspectorLoading: false }); }
   },
 
-  // FEATURE 2: Persistent context chats per node code block
   askNodeQuestion: async (nodeId, question) => {
     const cleanId = String(nodeId);
     const targetNode = get().nodes.find(n => String(n.id || n._id) === cleanId);
@@ -231,7 +251,6 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
     set({ isActionPending: false });
   },
 
-  // FEATURE 1: What-If architecture impacts simulation engine
   predictCodeChanges: async (nodeId, intent) => {
     const cleanId = String(nodeId);
     const targetNode = get().nodes.find(n => String(n.id || n._id) === cleanId);

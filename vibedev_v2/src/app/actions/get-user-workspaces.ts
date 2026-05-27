@@ -1,3 +1,4 @@
+// filepath: /src/app/actions/get-user-workspaces.ts
 "use server";
 
 import { prisma } from "@/lib/prisma"; 
@@ -21,6 +22,7 @@ export async function getUserWorkspaces() {
 
   if (!user) throw new Error("User record mapping missing");
 
+  // 1. Fetch official enterprise team workspaces
   const memberships = await prisma.orgMember.findMany({
     where: { userId: user.id },
     include: {
@@ -35,10 +37,28 @@ export async function getUserWorkspaces() {
     },
   });
 
-  const organizations = memberships.map((m) => m.organization);
+  const explicitOrganizations = memberships.map((m) => ({
+    id: m.organization.id,
+    name: m.organization.name,
+    slug: m.organization.slug,
+    imageUrl: m.organization.imageUrl,
+    type: "ORGANIZATION",
+    role: m.role
+  }));
+
+  // 2. Synthesize an implicit Personal Space payload to prevent dashboard breakage
+  const personalWorkspace = {
+    id: `personal-${user.id}`,
+    name: "Personal Sandboxes",
+    slug: "personal-workspace",
+    imageUrl: user.image || null,
+    type: "PERSONAL",
+    role: "ADMIN"
+  };
 
   return {
     user,
-    organizations,
+    // Unified workspace selection stream
+    workspaces: [personalWorkspace, ...explicitOrganizations],
   };
 }

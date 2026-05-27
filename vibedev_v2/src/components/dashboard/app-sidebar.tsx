@@ -19,7 +19,7 @@ import {
   MessageSquare   // 🚀 Added for Discussions
 } from "lucide-react";
 import { useWorkspace } from "@/context/workspace-context";
-import { getUserWorkspaces } from "@/app/actions/workspace";
+import { getUserWorkspaces } from "@/app/actions/get-user-workspaces";
 import { getWorkspaceProjects } from "@/app/actions/projects";
 import { signOut } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
