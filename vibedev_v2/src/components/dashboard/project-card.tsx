@@ -119,15 +119,8 @@ export function ProjectCard({ project, onSyncRefresh, onDeleteProject }: Project
           <Layers size={14} className="text-indigo-400" />
           Open Visualizer
         </Button>
-        <Button 
-          size="sm" 
-          className="bg-indigo-600 hover:bg-indigo-500 text-white gap-1.5 h-9 shadow-md shadow-indigo-600/10"
-          onClick={() => router.push(`/dashboard/ide/${project.id}`)}
-          disabled={isDeleting}
-        >
-          <Terminal size={14} />
-          Open IDE
-        </Button>
+        
+        
       </CardFooter>
     </Card>
   );

@@ -88,6 +88,7 @@ interface VisualizerState {
 
   setAvailableWorkspaces: (workspaces: WorkspaceInfo[]) => void;
   setActiveWorkspace: (workspace: WorkspaceInfo | null) => void;
+  
 
   // 🚀 LIVE GIT ACTIONS HANDLERS
   initGitEnvironment: (owner: string, repo: string, token: string) => void;

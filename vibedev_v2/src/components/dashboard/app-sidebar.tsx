@@ -4,7 +4,6 @@ import React, { useEffect, useState } from "react";
 import { 
   Home,
   LayoutDashboard, 
-  Star,
   Folder,
   Plus,
   ChevronLeft,
@@ -15,8 +14,8 @@ import {
   ChevronsUpDown,
   User,
   Users,
-  BarChart3,      // 🚀 Added for Analytics
-  MessageSquare   // 🚀 Added for Discussions
+  BarChart3,
+  MessageSquare
 } from "lucide-react";
 import { useWorkspace } from "@/context/workspace-context";
 import { getUserWorkspaces } from "@/app/actions/get-user-workspaces";
@@ -47,12 +46,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-// Navigation array updating core panel pages links
 const navItems = [
   { title: "HOME", url: "/dashboard/home", icon: Home },
   { title: "DASHBOARD", url: "/dashboard", icon: LayoutDashboard },
-  { title: "GITHUB ANALYTICS", url: "/dashboard/analytics", icon: BarChart3 },      // 🚀 New
-  { title: "DISCUSSIONS", url: "/dashboard/discussions", icon: MessageSquare }, // 🚀 New
+  { title: "GITHUB ANALYTICS", url: "/dashboard/analytics", icon: BarChart3 },
+  { title: "DISCUSSIONS", url: "/dashboard/discussions", icon: MessageSquare },
 ];
 
 export function AppSidebar() {
@@ -72,8 +70,8 @@ export function AppSidebar() {
     async function loadWorkspaceMeta() {
       try {
         const data = await getUserWorkspaces();
-        setUserData(data.user);
-        setOrgs(data.organizations || []);
+        setUserData(data?.user || null);
+        setOrgs(data?.organizations || []);
       } catch (err) {
         console.error("Failed to load navigation workspace layers:", err);
       } finally {
@@ -89,7 +87,7 @@ export function AppSidebar() {
       setProjectsLoading(true);
       try {
         const data = await getWorkspaceProjects(currentWorkspaceType, activeOrgId);
-        setProjects(data.slice(0, 5));
+        setProjects(data ? data.slice(0, 5) : []);
       } catch (err) {
         console.error("Failed to sync project items feed inside sidebar:", err);
       } finally {
@@ -101,16 +99,25 @@ export function AppSidebar() {
 
   const isCollapsed = state === "collapsed";
 
-  // Compute label text matching the selection scope state
   const currentActiveName = currentWorkspaceType === "personal" 
     ? "Personal Space" 
     : orgs.find(o => o.id === activeOrgId)?.name || "Team Space";
+
+  // 🚀 Clear, forced logout sequence handler
+  const handleLogoutSequence = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    await signOut({ 
+      redirect: true, 
+      callbackUrl: "/" 
+    });
+  };
 
   return (
     <Sidebar 
       variant="sidebar" 
       collapsible="icon" 
-      className="border-r border-zinc-900 bg-[#0d1117] text-zinc-400 select-none w-[260px] shrink-0"
+      className="border-r border-zinc-900 bg-[#0d1117] text-zinc-400 select-none w-[260px] shrink-0 z-30"
     >
       {/* 1. BRAND HEADER BLOCK WITH INTEGRATED INTERACTIVE WORKSPACE SELECTOR */}
       <SidebarHeader className="p-3 border-b border-zinc-900/40 flex flex-row items-center gap-2 min-h-[64px] bg-[#0d1117]">
@@ -142,12 +149,11 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               
-              <DropdownMenuContent className="w-60 bg-zinc-900 border border-zinc-800 text-zinc-300 shadow-2xl rounded-xl p-1" align="start" side="bottom" sideOffset={6}>
+              <DropdownMenuContent className="w-60 bg-zinc-900 border border-zinc-800 text-zinc-300 shadow-2xl rounded-xl p-1 z-[100]" align="start" side="bottom" sideOffset={6}>
                 <DropdownMenuLabel className="text-[10px] text-zinc-500 font-bold tracking-widest uppercase px-2.5 py-2">
                   Select Scope
                 </DropdownMenuLabel>
                 
-                {/* Switch to Personal Scope option trigger click link */}
                 <DropdownMenuItem 
                   onClick={() => setActiveWorkspace("personal", null)}
                   className={`flex items-center gap-2.5 cursor-pointer focus:bg-zinc-800 focus:text-white py-2 px-2.5 rounded-lg text-xs ${
@@ -202,8 +208,6 @@ export function AppSidebar() {
 
       {/* 2. CORE INTERIOR NAVIGATION STREAM */}
       <SidebarContent className="px-3 py-4 space-y-6 scrollbar-none bg-[#0d1117]">
-        
-        {/* Core Items Section */}
         <SidebarGroup className="p-0">
           <SidebarGroupContent>
             <SidebarMenu className="gap-1.5">
@@ -285,8 +289,9 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* 3. FOOTER SEGMENT */}
-      <SidebarFooter className="p-3 border-t border-zinc-900/40 space-y-3 bg-[#0d1117]">
+      {/* 3. FOOTER SEGMENT WITH FIXED DROPDOWN RUNTIME */}
+      {/* 🚀 Changed styling layer bounds to keep pointer elements interactive */}
+      <SidebarFooter className="p-3 border-t border-zinc-900/40 space-y-3 bg-[#0d1117] pointer-events-auto overflow-visible">
         <div className="px-1">
           <div className="flex items-center justify-between bg-zinc-900/40 border border-zinc-900 rounded-lg p-1 text-xs font-mono h-9">
             <div className="flex items-center gap-2 px-2 text-zinc-400">
@@ -301,46 +306,54 @@ export function AppSidebar() {
           </div>
         </div>
 
-        <SidebarMenu>
+        <SidebarMenu className="overflow-visible">
           <SidebarMenuItem>
-            {!loading && userData && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <SidebarMenuButton 
-                    size="lg" 
-                    className="w-full hover:bg-zinc-900/60 data-[state=open]:bg-zinc-900/60 p-1.5 rounded-xl transition-all"
-                  >
-                    <div className="flex items-center gap-2.5 w-full overflow-hidden">
-                      <Avatar className="h-7 w-7 border border-zinc-800 shrink-0 rounded-full">
-                        <AvatarImage src={userData.image || ""} alt="User Avatar" />
-                        <AvatarFallback className="bg-zinc-900 text-zinc-500 text-[10px] font-bold">
-                          {userData.name?.substring(0, 2).toUpperCase() || "VB"}
-                        </AvatarFallback>
-                      </Avatar>
-                      
-                      {!isCollapsed && (
-                        <div className="flex flex-col text-left leading-tight flex-1 truncate">
-                          <span className="text-xs font-semibold text-zinc-200 truncate">{userData.name}</span>
-                          <span className="text-[10px] text-zinc-500 truncate mt-0.5 font-mono">{userData.email}</span>
-                        </div>
-                      )}
-                    </div>
-                  </SidebarMenuButton>
-                </DropdownMenuTrigger>
-                
-                <DropdownMenuContent className="w-52 bg-zinc-900 border border-zinc-800 text-zinc-300 shadow-xl rounded-xl" align="start" side={isCollapsed ? "right" : "top"} sideOffset={8}>
-                  <DropdownMenuLabel className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase px-2.5 py-1.5">Settings</DropdownMenuLabel>
-                  <DropdownMenuSeparator className="bg-zinc-800/60" />
-                  <DropdownMenuItem 
-                    onClick={() => signOut({ callbackUrl: "/" })}
-                    className="flex items-center gap-2 cursor-pointer text-red-400 focus:bg-red-950/20 focus:text-red-400 rounded-lg py-2 px-2.5 m-1"
-                  >
-                    <LogOut size={14} />
-                    <span className="text-sm font-medium">Log out</span>
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <SidebarMenuButton 
+                  size="lg" 
+                  className="w-full hover:bg-zinc-900/60 data-[state=open]:bg-zinc-900/60 p-1.5 rounded-xl transition-all"
+                >
+                  <div className="flex items-center gap-2.5 w-full overflow-hidden">
+                    <Avatar className="h-7 w-7 border border-zinc-800 shrink-0 rounded-full">
+                      <AvatarImage src={userData?.image || ""} alt="User Avatar" />
+                      <AvatarFallback className="bg-zinc-900 text-zinc-500 text-[10px] font-bold">
+                        {userData?.name?.substring(0, 2).toUpperCase() || "UX"}
+                      </AvatarFallback>
+                    </Avatar>
+                    
+                    {!isCollapsed && (
+                      <div className="flex flex-col text-left leading-tight flex-1 truncate">
+                        <span className="text-xs font-semibold text-zinc-200 truncate">
+                          {loading ? "Loading account..." : (userData?.name || "Workspace User")}
+                        </span>
+                        <span className="text-[10px] text-zinc-500 truncate mt-0.5 font-mono">
+                          {userData?.email || "active_session"}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </SidebarMenuButton>
+              </DropdownMenuTrigger>
+              
+              {/* 🚀 Changed to side="right" when collapsed, side="top" when open, added hardcoded z-[100] override */}
+              <DropdownMenuContent 
+                className="w-52 bg-zinc-900 border border-zinc-800 text-zinc-300 shadow-2xl rounded-xl p-1 z-[100]" 
+                align="end" 
+                side={isCollapsed ? "right" : "top"} 
+                sideOffset={12}
+              >
+                <DropdownMenuLabel className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase px-2.5 py-1.5">Settings</DropdownMenuLabel>
+                <DropdownMenuSeparator className="bg-zinc-800/60 mx-1" />
+                <DropdownMenuItem 
+                  onSelect={handleLogoutSequence}
+                  className="flex items-center gap-2 cursor-pointer text-red-400 focus:bg-red-950/40 focus:text-red-400 rounded-lg py-2 px-2.5 m-1 transition-all"
+                >
+                  <LogOut size={14} />
+                  <span className="text-xs font-semibold">Log out</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarFooter>

@@ -285,7 +285,7 @@ export default function DeepWorkspaceVisualizerPage() {
           )}
         </div>
 
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none select-none">
+        <div className="absolute left-1/3 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none select-none">
           <div className="w-1 h-1 bg-emerald-400 rounded-full animate-pulse" />
           <h1 className="text-[11px] font-mono font-bold tracking-widest uppercase text-zinc-300">Architecture Explorer</h1>
         </div>

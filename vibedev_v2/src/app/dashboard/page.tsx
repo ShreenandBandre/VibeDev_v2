@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect, useState, useTransition, useRef } from "react";
+import React, { useEffect, useState, useTransition } from "react";
 import { useWorkspace } from "@/context/workspace-context";
-import { getWorkspaceProjects, deleteWorkspaceProject } from "@/app/actions/projects"; // 🚀 Added delete server action import
+import { getWorkspaceProjects, deleteWorkspaceProject } from "@/app/actions/projects"; 
 import { syncRepositoryUpstream } from "@/app/actions/git-cloner"; 
 import { Button } from "@/components/ui/button";
 import { ChangelogStream } from "@/components/dashboard/changelog-stream";
@@ -29,6 +29,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function DashboardPage() {
   const { currentWorkspaceType, activeOrgId } = useWorkspace();
@@ -37,33 +43,17 @@ export default function DashboardPage() {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  // Tracks context menu state per project ID
-  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
-  // Tracks database deletion states
   const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
-  // Tracks which specific card is processing upstream delta runs
   const [isSyncing, setIsSyncing] = useState<string | null>(null);
 
   const clonerStore = useClonerStore();
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // Auto close open 3-dot menus on clicking anywhere outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setActiveMenuId(null);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   const fetchProjects = () => {
     setError(null);
     startTransition(async () => {
       try {
         const data = await getWorkspaceProjects(currentWorkspaceType, activeOrgId);
-        setProjects(data);
+        setProjects(data || []);
       } catch (err: any) {
         setError(err.message || "Failed to load active workspaces.");
       }
@@ -74,20 +64,16 @@ export default function DashboardPage() {
     fetchProjects();
   }, [currentWorkspaceType, activeOrgId]);
 
-  // Handler for hard-deleting the project instance out of MongoDB
   const handleHardDeleteProject = async (projectId: string, projectTitle: string) => {
-    setActiveMenuId(null);
     if (!confirm(`Kya aap sach me "${projectTitle}" ko database se permanently delete karna chahte hain?`)) {
       return;
     }
 
     try {
       setIsDeletingId(projectId);
-      // Calls Server Action directly to hit the mongo client context layer
       const result = await deleteWorkspaceProject(projectId);
       
       if (result?.success || result === undefined) {
-        // Optimistically pull from current node matrix arrays
         setProjects((prev) => prev.filter((p) => p.id !== projectId));
         fetchProjects(); 
       } else {
@@ -101,7 +87,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Handler for calculating and applying delta synchronization updates
   const handlePullSync = async (projectId: string, descriptionText: string) => {
     const gitUrlMatch = descriptionText?.match(/https:\/\/github\.com\/[^\s]+/);
     if (!gitUrlMatch) {
@@ -146,7 +131,6 @@ export default function DashboardPage() {
 
       {/* 2. CORE ACTION ENTRY CARDS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* CREATE FRESH PLAYGROUND CARD */}
         <div 
           onClick={() => router.push("/dashboard/new-playground")}
           className="group relative border border-zinc-800/80 bg-zinc-900/20 rounded-2xl p-6 flex justify-between items-center overflow-hidden hover:border-zinc-700/60 transition-all duration-300 cursor-pointer"
@@ -176,7 +160,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* CLONE GIT REPOSITORY CARD */}
         <div 
           onClick={() => clonerStore.setOpen(true)}
           className="group relative border border-zinc-800/80 bg-zinc-900/20 rounded-2xl p-6 flex justify-between items-center overflow-hidden hover:border-zinc-700/60 transition-all duration-300 cursor-pointer"
@@ -213,9 +196,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* 3. ASYMMETRIC TWO-COLUMN DASHBOARD LAYOUT GRID SPLIT */}
+      {/* 3. LAYOUT GRID SPLIT */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-8 items-start">
-        {/* LEFT & CENTER PANEL CANVAS: ACTIVE PROJECTS LIST */}
         <div className="xl:col-span-2 space-y-4">
           <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-zinc-500 uppercase">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -236,7 +218,7 @@ export default function DashboardPage() {
               <p className="text-sm text-zinc-500">No projects mapped to this workspace module view.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6" ref={activeMenuId ? menuRef : null}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {projects.map((project) => {
                 const isGitWorkspace = project.description?.includes("https://github.com");
                 const isDeleting = isDeletingId === project.id;
@@ -247,13 +229,12 @@ export default function DashboardPage() {
                     className={`border border-zinc-800 bg-zinc-900/20 rounded-xl p-5 space-y-4 hover:border-zinc-700/80 transition-all group flex flex-col justify-between relative ${isDeleting ? "opacity-40 pointer-events-none" : ""}`}
                   >
                     <div>
-                      <div className="flex items-center justify-between relative">
+                      <div className="flex items-center justify-between">
                         <span className="text-[10px] font-mono bg-blue-950/40 text-blue-400 border border-blue-900/50 px-2 py-0.5 rounded font-bold uppercase">
                           {project.template}
                         </span>
                         
                         <div className="flex items-center gap-1.5">
-                          {/* UPSTREAM REFRESH TRIGGER FOR REPO CHANGES */}
                           {isGitWorkspace && (
                             <Button
                               variant="ghost"
@@ -266,38 +247,32 @@ export default function DashboardPage() {
                             </Button>
                           )}
 
-                          {/* UNIVERSAL 3-DOTS CONTEXT MENUS CONTROL */}
-                          <div className="relative">
-                            <Button 
-                              variant="ghost"
-                              size="icon"
-                              disabled={isDeleting}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setActiveMenuId(activeMenuId === project.id ? null : project.id);
-                              }}
-                              className="h-7 w-7 text-zinc-500 hover:text-zinc-300 bg-zinc-900/40 border border-zinc-800/80 rounded flex items-center justify-center"
-                            >
-                              {isDeleting ? (
-                                <Loader2 size={12} className="animate-spin text-red-500" />
-                              ) : (
-                                <MoreVertical size={12} />
-                              )}
-                            </Button>
-
-                            {/* FLOATING ACTION OVERLAY DROPDOWN */}
-                            {activeMenuId === project.id && (
-                              <div className="absolute right-0 top-8 bg-zinc-950 border border-zinc-800 text-zinc-300 w-40 rounded-xl shadow-2xl z-50 py-1 font-sans">
-                                <button
-                                  onClick={() => handleHardDeleteProject(project.id, project.title)}
-                                  className="w-full text-left text-red-400 hover:text-red-300 hover:bg-red-950/20 px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors"
-                                >
-                                  <Trash2 size={13} />
-                                  <span>Delete Project</span>
-                                </button>
-                              </div>
-                            )}
-                          </div>
+                          {/* REFACTORED TO RADIX DROP-DOWN SYSTEM TO PREVENT FOCUS-STEAL BUGS */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button 
+                                variant="ghost"
+                                size="icon"
+                                disabled={isDeleting}
+                                className="h-7 w-7 text-zinc-500 hover:text-zinc-300 bg-zinc-900/40 border border-zinc-800/80 rounded flex items-center justify-center"
+                              >
+                                {isDeleting ? (
+                                  <Loader2 size={12} className="animate-spin text-red-500" />
+                                ) : (
+                                  <MoreVertical size={12} />
+                                )}
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-40 bg-zinc-950 border border-zinc-800 text-zinc-300 rounded-xl shadow-2xl py-1">
+                              <DropdownMenuItem
+                                onClick={() => handleHardDeleteProject(project.id, project.title)}
+                                className="text-red-400 focus:bg-red-950/20 focus:text-red-300 px-3 py-2 text-xs font-medium flex items-center gap-2 cursor-pointer"
+                              >
+                                <Trash2 size={13} />
+                                <span>Delete Project</span>
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </div>
 
@@ -352,7 +327,6 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* RIGHT PANEL CANVAS: HIGH-END GITHUB CHANGELOG STREAM */}
         <div className="xl:col-span-1">
           <ChangelogStream />
         </div>
