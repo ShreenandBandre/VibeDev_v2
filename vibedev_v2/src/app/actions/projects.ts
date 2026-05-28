@@ -5,17 +5,7 @@ import { auth } from "@/auth";
 
 export async function getWorkspaceProjects(workspaceType: "personal" | "team" | string, orgId: string | null) {
   const session = await auth();
-  if (!session?.user?.email) {
-    throw new Error("Unauthorized");
-  }
-
-  // Normalize the input type to match our internal logic
-  const type = workspaceType.toLowerCase() === "personal" ? "personal" : "team";
-
-  // 🚀 DEVELOPER SANDBOX SHORT-CIRCUIT
-  if (type === "team" && orgId === "mock-vibedev-org-id") {
-    return [];
-  }
+  if (!session?.user?.email) throw new Error("Unauthorized");
 
   const user = await prisma.user.findUnique({
     where: { email: session.user.email },
@@ -24,11 +14,9 @@ export async function getWorkspaceProjects(workspaceType: "personal" | "team" | 
 
   if (!user) throw new Error("User context not found");
 
-  // Handle Team Workspace Query
-  if (type === "team" && orgId) {
-    // If it's our mock ID, return empty (already handled above, but here for safety)
-    if (orgId === "mock-vibedev-org-id") return [];
-
+  // Handle Team Workspace
+  if (workspaceType.toLowerCase() === "team" && orgId) {
+    // 1. Validate Membership
     const membership = await prisma.orgMember.findUnique({
       where: {
         organizationId_userId: {
@@ -38,8 +26,12 @@ export async function getWorkspaceProjects(workspaceType: "personal" | "team" | 
       }
     });
 
-    if (!membership) throw new Error("Forbidden access to this team space");
+    if (!membership) {
+      console.error(`User ${user.id} attempted to access unauthorized Org ${orgId}`);
+      return []; // Return empty instead of throwing to prevent crashing the Sidebar
+    }
 
+    // 2. Fetch Projects
     return await prisma.playground.findMany({
       where: { organizationId: orgId },
       include: {
@@ -49,8 +41,7 @@ export async function getWorkspaceProjects(workspaceType: "personal" | "team" | 
     });
   }
 
-  // Handle Personal Workspace Query
-  // Note: We filter by userId and explicitly ensure organizationId is null
+  // Handle Personal Workspace
   return await prisma.playground.findMany({
     where: {
       userId: user.id,

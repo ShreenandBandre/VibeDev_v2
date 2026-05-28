@@ -8,21 +8,18 @@ import {
   Plus,
   ChevronLeft,
   ChevronRight,
-  Sun,
   LogOut,
-  Loader2,
   ChevronsUpDown,
   User,
   Users,
   BarChart3,
   MessageSquare,
 } from "lucide-react";
-
+import { signOut } from "next-auth/react";
 import { useWorkspace } from "@/context/workspace-context";
 import { getUserWorkspaces } from "@/app/actions/get-user-workspaces";
 import { getWorkspaceProjects } from "@/app/actions/projects";
 import { CreateOrgModal } from "@/components/ui/create-org-modal";
-import { signOut } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Sidebar,
@@ -45,7 +42,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const navItems = [
   { title: "HOME", url: "/dashboard/home", icon: Home },
@@ -62,7 +58,6 @@ export function AppSidebar() {
 
   const [loading, setLoading] = useState(true);
   const [projectsLoading, setProjectsLoading] = useState(true);
-  const [userData, setUserData] = useState<any>(null);
   const [orgs, setOrgs] = useState<any[]>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [projects, setProjects] = useState<any[]>([]);
@@ -72,20 +67,18 @@ export function AppSidebar() {
   const refreshWorkspaces = async () => {
     try {
       const data = await getUserWorkspaces();
-      // FIX: Accessing the correct nested path
       setOrgs(data.groupedWorkspaces?.organizations || []);
     } catch (error) {
       console.error("Failed to refresh workspaces:", error);
     }
   };
 
+  // Initial load
   useEffect(() => {
     async function loadWorkspaceMeta() {
       try {
         setLoading(true);
         const data = await getUserWorkspaces();
-        setUserData(data.user);
-        // FIX: Accessing the correct nested path
         setOrgs(data.groupedWorkspaces?.organizations || []);
       } catch (error) {
         console.error("Failed to load workspace data:", error);
@@ -96,11 +89,16 @@ export function AppSidebar() {
     loadWorkspaceMeta();
   }, []);
 
+  // Listen for navigation changes to refresh the list
+  useEffect(() => {
+    refreshWorkspaces();
+  }, [pathname]);
+
+  // Load Projects
   useEffect(() => {
     async function loadProjects() {
       try {
         setProjectsLoading(true);
-        // Ensure we pass a string that matches the projects.ts logic
         const data = await getWorkspaceProjects(currentWorkspaceType, activeOrgId);
         setProjects(Array.isArray(data) ? data.slice(0, 5) : []);
       } catch (error) {
@@ -111,6 +109,14 @@ export function AppSidebar() {
     }
     loadProjects();
   }, [currentWorkspaceType, activeOrgId]);
+
+  useEffect(() => {
+  // If the activeOrgId changes, it means we likely switched workspaces
+  // This will force the projects list to update for that specific organization
+  if (currentWorkspaceType === "team" && activeOrgId) {
+    refreshWorkspaces();
+  }
+}, [currentWorkspaceType, activeOrgId]);
 
   const currentWorkspaceName =
     currentWorkspaceType === "personal"
@@ -208,7 +214,7 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-3 border-t border-zinc-900/50">
-         {/* User profile section remains same as your original provided code */}
+         {/* User profile section */}
       </SidebarFooter>
       <CreateOrgModal isOpen={isCreateModalOpen} onClose={() => setIsCreateModalOpen(false)} onSuccess={refreshWorkspaces} />
     </Sidebar>

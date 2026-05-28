@@ -5,65 +5,48 @@ import { auth } from "@/auth";
 
 export async function getUserWorkspaces() {
   const session = await auth();
-  if (!session?.user?.email) {
-    throw new Error("Unauthorized access request");
-  }
+  if (!session?.user?.email) throw new Error("Unauthorized");
 
   const user = await prisma.user.findUnique({
     where: { email: session.user.email },
-    select: { id: true, name: true, email: true, image: true },
+    select: { id: true, name: true, image: true },
   });
 
-  if (!user) throw new Error("User record mapping missing");
+  if (!user) throw new Error("User record missing");
 
-  // Fetch organizational teams
+  // Fetch memberships
   const memberships = await prisma.orgMember.findMany({
     where: { userId: user.id },
-    include: {
-      organization: {
-        select: { id: true, name: true, slug: true, imageUrl: true },
-      },
-    },
+    include: { organization: true },
   });
 
-  let explicitOrganizations = memberships.map((m) => ({
-    id: m.organization.id,
-    name: m.organization.name,
-    slug: m.organization.slug,
-    imageUrl: m.organization.imageUrl,
-    type: "ORGANIZATION", // Consistent string for UI checks
-    role: m.role || "VIEWER"
-  }));
+  // Fetch owned orgs
+  const ownedOrgs = await prisma.organization.findMany({
+    where: { ownerId: user.id },
+  });
 
-  // Mock Injection
-  if (explicitOrganizations.length === 0) {
-    explicitOrganizations = [
-      {
-        id: "mock-vibedev-org-id",
-        name: "VibeDev Enterprise Core",
-        slug: "vibedev-enterprise",
-        imageUrl: null,
-        type: "ORGANIZATION",
-        role: "VIEWER"
-      }
-    ];
+  // Debugging: Log if user has no orgs
+  if (memberships.length === 0 && ownedOrgs.length === 0) {
+    console.log(`User ${user.id} has no associated organizations.`);
   }
 
-  const personalWorkspace = {
-    id: `personal-${user.id}`,
-    name: "Personal Sandboxes",
-    slug: "personal-workspace",
-    imageUrl: user.image || null,
-    type: "PERSONAL", // Consistent string for UI checks
-    role: "ADMIN"
-  };
+  const orgMap = new Map();
+  memberships.forEach(m => {
+    if (m.organization) {
+      orgMap.set(m.organization.id, { ...m.organization, role: m.role || "MEMBER" });
+    }
+  });
+
+  ownedOrgs.forEach(org => {
+    if (!orgMap.has(org.id)) {
+      orgMap.set(org.id, { ...org, role: "ADMIN" });
+    }
+  });
 
   return {
     user,
     groupedWorkspaces: {
-      personal: personalWorkspace,
-      organizations: explicitOrganizations,
+      organizations: Array.from(orgMap.values()),
     },
-    workspaces: [personalWorkspace, ...explicitOrganizations],
   };
 }

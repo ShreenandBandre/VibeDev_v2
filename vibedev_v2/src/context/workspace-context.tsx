@@ -8,6 +8,7 @@ import React, {
   useCallback,
 } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { useMemo } from "react";
 
 type WorkspaceType = "personal" | "team";
 
@@ -39,6 +40,7 @@ export function WorkspaceProvider({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
+  
   const setActiveWorkspace = useCallback(
     (type: WorkspaceType, orgId: string | null) => {
       setCurrentWorkspaceType(type);
@@ -70,13 +72,17 @@ export function WorkspaceProvider({
     }
   }, [pathname, searchParams]);
 
+  const contextValue = useMemo(() => ({
+    currentWorkspaceType,
+    activeOrgId,
+    setActiveWorkspace,
+  }), [currentWorkspaceType, activeOrgId, setActiveWorkspace]);
+
   return (
     <WorkspaceContext.Provider
-      value={{
-        currentWorkspaceType,
-        activeOrgId,
-        setActiveWorkspace,
-      }}
+      value={
+        contextValue
+      }
     >
       {children}
     </WorkspaceContext.Provider>

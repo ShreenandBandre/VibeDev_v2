@@ -275,6 +275,8 @@ model Organization {
   playgrounds  Playground[] 
   activityLogs ActivityLog[]
 
+  invitations   Invitation[]
+
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
@@ -320,4 +322,22 @@ model ActivityLog {
   @@index([userId])
   @@index([organizationId])
   @@map("activity_logs")
+}
+
+// ==========================================
+// ONBOARDING & INVITE SYSTEM
+// ==========================================
+
+model Invitation {
+  id             String       @id @default(cuid()) @map("_id")
+  email          String       // The email of the person being invited
+  token          String       @unique // Secure string for the invite URL
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  role           String       @default("MEMBER")
+  createdAt      DateTime     @default(now())
+  expiresAt      DateTime     // To invalidate old links
+
+  
+  @@map("invitations")
 }
