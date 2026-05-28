@@ -69,12 +69,16 @@ export function AppSidebar() {
   useEffect(() => {
     async function loadWorkspaceMeta() {
       try {
-        const data = await getUserWorkspaces();
-        setUserData(data?.user || null);
-        setOrgs(data?.organizations || []);
-      } catch (err) {
-        console.error("Failed to load navigation workspace layers:", err);
-      } finally {
+  const data = await getUserWorkspaces();
+  setUserData(data?.user || null);
+  
+  // 🚀 FIXED: Filter out elements where type equals "ORGANIZATION" from the workspaces array
+  const activeOrgs = data?.workspaces?.filter(w => w.type === "ORGANIZATION") || [];
+  setOrgs(activeOrgs);
+  
+} catch (err) {
+  console.error("Failed to load navigation workspace layers:", err);
+}finally {
         setLoading(false);
       }
     }
@@ -104,9 +108,7 @@ export function AppSidebar() {
     : orgs.find(o => o.id === activeOrgId)?.name || "Team Space";
 
   // 🚀 Clear, forced logout sequence handler
-  const handleLogoutSequence = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleLogoutSequence = async () => {
     await signOut({ 
       redirect: true, 
       callbackUrl: "/" 
@@ -346,7 +348,7 @@ export function AppSidebar() {
                 <DropdownMenuLabel className="text-[10px] text-zinc-500 font-mono tracking-widest uppercase px-2.5 py-1.5">Settings</DropdownMenuLabel>
                 <DropdownMenuSeparator className="bg-zinc-800/60 mx-1" />
                 <DropdownMenuItem 
-                  onSelect={handleLogoutSequence}
+                  onSelect={ handleLogoutSequence}
                   className="flex items-center gap-2 cursor-pointer text-red-400 focus:bg-red-950/40 focus:text-red-400 rounded-lg py-2 px-2.5 m-1 transition-all"
                 >
                   <LogOut size={14} />

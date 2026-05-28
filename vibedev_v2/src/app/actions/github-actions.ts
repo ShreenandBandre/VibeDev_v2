@@ -17,7 +17,8 @@ interface DirectCommitPayload {
   files: FilePayload[];
 }
 
-function sanitizeToken(token?: string): string {
+// 🚀 FIXED: Added "null" to the token parameter type to handle Prisma return fields safely
+function sanitizeToken(token?: string | null): string {
   if (!token) return "";
   let clean = token.trim();
   if (clean.startsWith('"') && clean.endsWith('"')) clean = clean.slice(1, -1);
@@ -82,6 +83,7 @@ export async function fetchRemoteGitHubCommits(ownerOrPlaygroundId: string, repo
       if (targetMap) {
         targetOwner = targetMap.ownerName || "";
         targetRepo = targetMap.repositoryName || "";
+        // 🚀 This line works perfectly now because sanitizeToken accepts the string | null signature
         targetToken = sanitizeToken(targetMap.githubToken);
       }
     }

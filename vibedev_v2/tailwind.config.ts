@@ -1,18 +1,21 @@
-// tailwind.config.js
-/** @type {import('tailwindcss').Config} */
-module.exports = {
-  // ... your existing config
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  // ... rest of your existing configuration maps
   plugins: [
-    function ({ addUtilities }) {
+    // 🚀 FIXED: Set parameter type inline to 'any' to bypass missing module lookups entirely
+    function ({ addUtilities }: any) {
       addUtilities({
         '.scrollbar-none': {
           '-ms-overflow-style': 'none', /* IE and Edge */
           'scrollbar-width': 'none',    /* Firefox */
           '&::-webkit-scrollbar': {
-            display: 'none',            /* Chrome, Safari and Opera */
-          },
-        },
+            'display': 'none'           /* Chrome, Safari and Opera */
+          }
+        }
       });
-    },
+    }
   ],
-}
+};
+
+export default config;

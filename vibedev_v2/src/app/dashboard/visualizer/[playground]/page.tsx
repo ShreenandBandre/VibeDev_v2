@@ -81,8 +81,12 @@ export default function DeepWorkspaceVisualizerPage() {
       try {
         const payload = await getUserWorkspaces();
         if (payload && payload.workspaces) {
-          setAvailableWorkspaces(payload.workspaces);
-          const defaultSpace = payload.workspaces.find(w => w.type === "PERSONAL") || payload.workspaces[0];
+          // 🚀 FIX: Typecast the incoming workspaces data to match your store schema requirements
+          const typedWorkspaces = payload.workspaces as any[];
+          
+          setAvailableWorkspaces(typedWorkspaces);
+          
+          const defaultSpace = typedWorkspaces.find(w => w.type === "PERSONAL") || typedWorkspaces[0];
           setActiveWorkspace(defaultSpace);
         }
       } catch (err) {
@@ -430,15 +434,14 @@ export default function DeepWorkspaceVisualizerPage() {
         {/* Central Canvas Viewport */}
         <div className="flex-1 h-full p-3 overflow-hidden min-w-[300px] relative bg-zinc-900/50">
           <CodeCanvas 
-            nodes={nodes} 
-            edges={edges} 
-            summaries={summaries} 
-            timelineStep={timelineStep}
-            onNodeSelect={(node) => {
-              setSelectedNode(node);
-              if (node.type === "file") setSelectedFile(node);
-            }} 
-          />
+  nodes={nodes} 
+  edges={edges} 
+  summaries={summaries} 
+  onNodeSelect={(node) => {
+    setSelectedNode(node);
+    if (node.type === "file") setSelectedFile(node);
+  }} 
+/>
 
           {/* AI QUERY TERMINAL */}
           {isTerminalOpen && selectedNode && (

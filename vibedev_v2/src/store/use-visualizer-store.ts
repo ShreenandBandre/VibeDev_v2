@@ -348,7 +348,7 @@ export const useVisualizerStore = create<VisualizerState>((set, get) => ({
           status: res.status || "PENDING",
           nodes: mergedNodes,
           edges: currentEdges,
-          summaries: fallbackSummaries,
+          summaries: fallbackSummaries as Record<string, NodeSummary> | undefined,
           selectedNode: updatedSelectedNode,
           selectedFile: updatedSelectedFile,
           error: null,
