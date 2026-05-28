@@ -34,17 +34,28 @@ export async function getUserGitHubRepositories(): Promise<{ success: boolean; d
       return { success: false, error: "GitHub account link missing. Please log in again via GitHub." };
     }
 
-    // 2. Fetch all user repos (both owned and collaborated on) sorted by recent updates
+    // 2. Fetch all user repos sorted by recent updates
     const githubResponse = await fetch("https://api.github.com/user/repos?sort=updated&per_page=50", {
       headers: {
         Authorization: `Bearer ${account.access_token}`,
         Accept: "application/vnd.github.v3+json",
+        "User-Agent": "NextJS-App-Client" // GitHub API strictly requires a User-Agent header
       },
-      next: { revalidate: 0 } // Always bypass caching for fresh live feeds
+      next: { revalidate: 0 } 
     });
 
     if (!githubResponse.ok) {
-      return { success: false, error: "Failed to download your repository profile index from GitHub." };
+      // Catch and parse the exact message payload returned by GitHub's API
+      let gitHubErrorMessage = `GitHub responded with status ${githubResponse.status}`;
+      try {
+        const errorPayload = await githubResponse.json();
+        gitHubErrorMessage = `GitHub API Error (${githubResponse.status}): ${errorPayload.message || JSON.stringify(errorPayload)}`;
+      } catch (_) {
+        // Fallback if response body isn't standard JSON
+      }
+
+      console.error("❌ GitHub API Fetch Failure Context:", gitHubErrorMessage);
+      return { success: false, error: gitHubErrorMessage };
     }
 
     const rawRepos = await githubResponse.json();

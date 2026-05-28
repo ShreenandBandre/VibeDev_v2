@@ -1,10 +1,9 @@
-// filepath: /src/components/visualizer/code-canvas.tsx
 "use client";
 
 import React, { useState, useMemo, useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useVisualizerStore } from "@/store/use-visualizer-store";
-import { Folder, FileCode, Cpu, Link2, ChevronRight, Search, Zap, Download } from "lucide-react";
+import { Folder, FileCode, Cpu, Link2, ChevronRight, Search, Zap, Download, ArrowLeft } from "lucide-react";
 
 interface CanvasProps {
   nodes: any[];
@@ -13,7 +12,7 @@ interface CanvasProps {
   onNodeSelect: (node: any) => void;
 }
 
-export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProps) {
+export function CodeCanvas({ nodes = [], edges = [], summaries = {}, onNodeSelect }: CanvasProps) {
   const params = useParams();
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const fetchNodeSummary = useVisualizerStore((state) => state.fetchNodeSummary);
@@ -22,7 +21,6 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Local state to track custom card order rearrangements from drag-and-drop actions
   const [orderedNodeIds, setOrderedNodeIds] = useState<string[]>([]);
   const [draggedNodeId, setDraggedNodeId] = useState<string | null>(null);
 
@@ -32,18 +30,23 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
 
   const selectedNode = useVisualizerStore((state) => state.selectedNode);
   
+  // Sync state with global store selectors cleanly
   useEffect(() => {
     if (!selectedNode) {
       setSelectedFolderId(null);
       setSelectedFileId(null);
     } else {
-      if (selectedNode.type === "folder") {
-        setSelectedFolderId(selectedNode.id || selectedNode._id);
+      const nodeId = String(selectedNode.id || selectedNode._id || "");
+      const typeStr = String(selectedNode.type || "").toLowerCase();
+
+      if (typeStr.includes("folder")) {
+        setSelectedFolderId(nodeId);
         setSelectedFileId(null);
-      } else if (selectedNode.type === "file") {
-        setSelectedFileId(selectedNode.id || selectedNode._id);
-        if (selectedNode.parentId || selectedNode.folderId) {
-          setSelectedFolderId(selectedNode.parentId || selectedNode.folderId);
+      } else if (typeStr.includes("file")) {
+        setSelectedFileId(nodeId);
+        const parent = selectedNode.parentId || selectedNode.folderId || selectedNode.parent;
+        if (parent) {
+          setSelectedFolderId(String(parent));
         }
       }
     }
@@ -57,6 +60,16 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
     useVisualizerStore.getState().setSelectedFile(null);
   };
 
+  const navigateUp = () => {
+    if (selectedFileId) {
+      setSelectedFileId(null);
+      useVisualizerStore.getState().setSelectedFile(null);
+    } else if (selectedFolderId) {
+      setSelectedFolderId(null);
+      useVisualizerStore.getState().setSelectedNode(null);
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key.toLowerCase() === "e") {
@@ -68,49 +81,76 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  // Filter core items down based on context maps
+  // 🚀 RE-ENGINEERED STEP-BY-STEP DRILL DOWN FILTER
   const baseFilteredNodes = useMemo(() => {
-    let currentPool = nodes;
-
-    if (!searchQuery) {
-      if (selectedFileId) {
-        currentPool = nodes.filter(
-          (n) => n.type === "function" && String(n.parentId || n.fileId) === String(selectedFileId)
-        );
-      } else if (selectedFolderId) {
-        const folderChildren = nodes.filter(
-          (n) => n.type === "file" && String(n.parentId || n.folderId) === String(selectedFolderId)
-        );
-        if (folderChildren.length === 0) {
-          const targetFolderNode = nodes.find(n => String(n.id) === String(selectedFolderId) || String(n._id) === String(selectedFolderId));
-          if (targetFolderNode?.label) {
-            currentPool = nodes.filter(
-              (n) => n.type === "file" && (
-                String(n.path || "").includes(`/${targetFolderNode.label}/`) || 
-                String(n.parentId || n.folderId) === String(selectedFolderId)
-              )
-            );
-          }
-        } else {
-          currentPool = folderChildren;
-        }
-      } else {
-        const rootFolders = nodes.filter((n) => n.type === "folder" && (!n.parentId && !n.folderId));
-        currentPool = rootFolders.length === 0 ? nodes.filter((n) => n.type === "folder") : rootFolders;
-      }
-    }
-
+    if (!nodes || nodes.length === 0) return [];
+    
+    // Check global text searches first
     if (searchQuery.trim() !== "") {
       const normalizedQuery = searchQuery.toLowerCase();
-      currentPool = nodes.filter(
-        (n) => n.label?.toLowerCase().includes(normalizedQuery) || n.type?.toLowerCase().includes(normalizedQuery)
+      return nodes.filter(
+        (n) => 
+          String(n.label || n.name || "").toLowerCase().includes(normalizedQuery) || 
+          String(n.type || "").toLowerCase().includes(normalizedQuery)
       );
     }
 
-    return currentPool;
+    // STATE 3: File is selected -> Show ONLY its child Functions/Methods
+    if (selectedFileId) {
+      return nodes.filter((n) => {
+        const typeLower = String(n.type || "").toLowerCase();
+        const parentIdStr = String(n.parentId || n.fileId || n.folderId || n.parent || "");
+        
+        // Match nodes that are functions linked to this file
+        return (
+          (typeLower.includes("func") || typeLower.includes("method") || typeLower.includes("cpu")) &&
+          parentIdStr === String(selectedFileId)
+        );
+      });
+    }
+
+    // STATE 2: Folder is selected -> Show ONLY Files that belong to this folder
+    if (selectedFolderId) {
+      const childrenFiles = nodes.filter((n) => {
+        const typeLower = String(n.type || "").toLowerCase();
+        const parentIdStr = String(n.parentId || n.folderId || n.parent || "");
+        
+        return typeLower.includes("file") && parentIdStr === String(selectedFolderId);
+      });
+
+      // Fallback matching logic via path segments if explicit parent relationships aren't populated
+      if (childrenFiles.length === 0) {
+        const currentFolderNode = nodes.find(n => String(n.id || n._id) === String(selectedFolderId));
+        const matchToken = currentFolderNode?.label || currentFolderNode?.name || currentFolderNode?.path || "";
+        
+        if (matchToken) {
+          return nodes.filter((n) => {
+            const typeLower = String(n.type || "").toLowerCase();
+            const pathStr = String(n.path || "");
+            return typeLower.includes("file") && pathStr.includes(`${matchToken}/`);
+          });
+        }
+      }
+      return childrenFiles;
+    }
+
+    // STATE 1: Default / Root State -> Show ONLY Top-Level Folders
+    const rootFolders = nodes.filter((n) => {
+      const typeLower = String(n.type || "").toLowerCase();
+      const hasNoParent = !n.parentId && !n.folderId && !n.parent;
+      const isEmptyParent = n.parentId === "" || n.folderId === "" || n.parent === "";
+      
+      return typeLower.includes("folder") && (hasNoParent || isEmptyParent);
+    });
+
+    // Fallback: If no strict root isolated records exist, return all folder items to start with
+    if (rootFolders.length === 0) {
+      return nodes.filter(n => String(n.type || "").toLowerCase().includes("folder"));
+    }
+
+    return rootFolders;
   }, [nodes, selectedFolderId, selectedFileId, searchQuery]);
 
-  // Sort nodes based on manual drag relocations
   const displayedNodes = useMemo(() => {
     if (orderedNodeIds.length === 0) return baseFilteredNodes;
     
@@ -126,7 +166,7 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
   }, [baseFilteredNodes, orderedNodeIds]);
 
   const activeConnectedNodeIds = useMemo(() => {
-    if (!hoveredNodeId) return new Set<string>();
+    if (!hoveredNodeId || !edges) return new Set<string>();
     const linked = new Set<string>();
     edges.forEach((edge) => {
       if (String(edge.source) === String(hoveredNodeId)) linked.add(String(edge.target));
@@ -136,21 +176,28 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
   }, [hoveredNodeId, edges]);
 
   const handleElementSelection = (node: any) => {
-    const targetId = node.id || node._id;
+    const targetId = String(node.id || node._id);
+    const typeLower = String(node.type || "").toLowerCase();
+    
     onNodeSelect(node);
-    if ((node.type === "file" || node.type === "function") && playgroundId) {
-      fetchNodeSummary(targetId, playgroundId, node.type);
-    }
-    if (node.type === "folder") {
+    
+    if (typeLower.includes("folder")) {
       setSelectedFolderId(targetId);
       setSearchQuery("");
-    } else if (node.type === "file") {
+    } else if (typeLower.includes("file")) {
       setSelectedFileId(targetId);
       setSearchQuery("");
+      if (playgroundId) {
+        fetchNodeSummary(targetId, playgroundId, node.type);
+      }
+    } else {
+      // If it's a function or leaf node, trigger its analytics summary lookups
+      if (playgroundId) {
+        fetchNodeSummary(targetId, playgroundId, node.type);
+      }
     }
   };
 
-  // Drag and Drop Relocation Handlers
   const handleDragStart = (id: string) => {
     setDraggedNodeId(id);
   };
@@ -171,14 +218,13 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
     }
   };
 
-  // Export Architecture Snapshot Action
   const exportArchitectureBlueprint = () => {
     const exportData = {
       playgroundId,
       exportedAt: new Date().toISOString(),
       components: baseFilteredNodes.map(n => ({
         id: n.id || n._id,
-        name: n.label,
+        name: n.label || n.name,
         type: n.type,
         path: n.path || "root",
         insight: summaries?.[n.id || n._id] || "No documentation compiled yet."
@@ -197,8 +243,8 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
     URL.revokeObjectURL(url);
   };
 
-  const currentFolderName = useMemo(() => nodes.find((n) => String(n.id) === String(selectedFolderId) || String(n._id) === String(selectedFolderId))?.label, [nodes, selectedFolderId]);
-  const currentFileName = useMemo(() => nodes.find((n) => String(n.id) === String(selectedFileId) || String(n._id) === String(selectedFileId))?.label, [nodes, selectedFileId]);
+  const currentFolderName = useMemo(() => nodes.find((n) => String(n.id || n._id) === String(selectedFolderId))?.label || nodes.find((n) => String(n.id || n._id) === String(selectedFolderId))?.name, [nodes, selectedFolderId]);
+  const currentFileName = useMemo(() => nodes.find((n) => String(n.id || n._id) === String(selectedFileId))?.label || nodes.find((n) => String(n.id || n._id) === String(selectedFileId))?.name, [nodes, selectedFileId]);
 
   return (
     <div className="flex flex-col w-full h-full bg-zinc-950 border border-zinc-900 rounded-2xl overflow-hidden relative group/canvas">
@@ -206,6 +252,15 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
       {/* HEADER CONTROLS */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between px-6 py-4 border-b border-zinc-900 gap-3 shrink-0 bg-zinc-950">
         <div className="flex items-center gap-2 text-xs font-medium min-w-0">
+          {(selectedFolderId || selectedFileId) && (
+            <button 
+              onClick={navigateUp} 
+              className="mr-2 p-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 rounded-md text-zinc-400 hover:text-white transition-all flex items-center justify-center"
+              title="Go Back"
+            >
+              <ArrowLeft size={12} />
+            </button>
+          )}
           <button onClick={resetFilters} className={`transition-colors shrink-0 ${!selectedFolderId ? "text-white font-bold" : "text-zinc-500 hover:text-zinc-300"}`}>Root</button>
           {selectedFolderId && (
             <>
@@ -253,13 +308,17 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
       {/* DRAG-ARRANGEABLE CANVAS GRID */}
       <div className="flex-1 overflow-y-auto scrollbar-none p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-5 content-start">
         {displayedNodes.length === 0 ? (
-          <div className="col-span-full py-20 text-center text-zinc-600 text-xs font-mono border border-dashed border-zinc-900 rounded-xl m-2">No elements matching snapshot focus scopes.</div>
+          <div className="col-span-full py-20 text-center text-zinc-600 text-xs font-mono border border-dashed border-zinc-900 rounded-xl m-2">
+            No element nodes loaded in this scope view.
+          </div>
         ) : (
           displayedNodes.map((node) => {
             const nodeId = String(node.id || node._id);
             const isHovered = hoveredNodeId === nodeId;
             const isRelated = activeConnectedNodeIds.has(nodeId);
             const isDimmed = hoveredNodeId !== null && !isHovered && !isRelated;
+            
+            const nodeTypeLower = String(node.type || "").toLowerCase();
 
             return (
               <div
@@ -268,13 +327,12 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
                 onMouseEnter={() => setHoveredNodeId(nodeId)}
                 onMouseLeave={() => setHoveredNodeId(null)}
                 
-                // HTML5 Drag Attributes
                 draggable
                 onDragStart={() => handleDragStart(nodeId)}
                 onDragOver={(e) => handleDragOver(e, nodeId)}
                 onDragEnd={() => setDraggedNodeId(null)}
                 
-                className={`p-5 min-h-[115px] flex flex-col justify-between rounded-xl border transition-all duration-200 cursor-grab active:cursor-grabbing ${
+                className={`p-5 min-h-[115px] flex flex-col justify-between rounded-xl border transition-all duration-200 cursor-pointer ${
                   isHovered 
                     ? "border-indigo-500 bg-zinc-900 shadow-xl scale-[1.01]" 
                     : isRelated 
@@ -283,24 +341,27 @@ export function CodeCanvas({ nodes, edges, summaries, onNodeSelect }: CanvasProp
                 } ${isDimmed ? "opacity-30 blur-[0.3px]" : "opacity-100"} ${draggedNodeId === nodeId ? "border-dashed border-indigo-500/40 bg-zinc-950 opacity-40" : ""}`}
               >
                 <div className="flex items-center gap-2 mb-4">
-                  {node.type === "folder" ? (
+                  {nodeTypeLower.includes("folder") ? (
                     <Folder size={15} className="text-amber-500 shrink-0" />
-                  ) : node.type === "file" ? (
+                  ) : nodeTypeLower.includes("file") ? (
                     <FileCode size={15} className="text-blue-500 shrink-0" />
                   ) : (
                     <Cpu size={15} className="text-emerald-500 shrink-0" />
                   )}
                   <span className="text-[9px] font-mono text-zinc-600 uppercase tracking-wider">{node.type}</span>
                 </div>
-                <h4 className="text-xs font-bold text-zinc-200 break-all line-clamp-2 select-none leading-relaxed">{node.label}</h4>
+                <h4 className="text-xs font-bold text-zinc-200 break-all line-clamp-2 select-none leading-relaxed">
+                  {node.label || node.name}
+                </h4>
               </div>
             );
           })
         )}
       </div>
 
+      {/* FLOATING ACTION BOTTOM CONTROLS */}
       {(selectedFolderId || selectedFileId || searchQuery) && (
-        <div className="absolute bottom-4 right-4 z-50">
+        <div className="absolute bottom-4 right-4 z-50 flex items-center gap-2">
           <button onClick={resetFilters} className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white px-3 py-1.5 rounded-lg text-[10px] font-mono shadow-2xl transition-all">
             <Zap size={11} className="text-indigo-400" />
             <span>Reset View</span>

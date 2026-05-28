@@ -34,6 +34,24 @@ export async function cloneGitHubRepository(
       return { success: false, error: "401: Unauthorized request signature." };
     }
 
+    const account = await prisma.account.findFirst({
+      where: {
+        userId: session.user.id,
+        provider: "github"
+      }
+    });
+
+    if (!account || !account.access_token) {
+      return { success: false, error: "GitHub token missing from database record." };
+    }
+
+    const token = account.access_token;
+    const commonHeaders = {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "NextJS-App-Client"
+    };
+
     const targetUrlInfo = parseGitHubUrl(repoUrl);
     if (!targetUrlInfo) {
       return { success: false, error: "Invalid GitHub Repository target link layout syntax." };
@@ -43,8 +61,8 @@ export async function cloneGitHubRepository(
 
     const repoMetaUrl = `https://api.github.com/repos/${owner}/${repo}`;
     const metaResponse = await fetch(repoMetaUrl, {
-      headers: { Accept: "application/vnd.github.v3+json" },
-      next: { revalidate: 0 }
+      headers: commonHeaders,
+      cache: "no-store" // 🚀 No cache taaki purana layout data fetch na ho loop mein
     });
 
     if (!metaResponse.ok) {
@@ -56,8 +74,8 @@ export async function cloneGitHubRepository(
 
     const treeApiUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`;
     const treeResponse = await fetch(treeApiUrl, {
-      headers: { Accept: "application/vnd.github.v3+json" },
-      next: { revalidate: 0 }
+      headers: commonHeaders,
+      cache: "no-store"
     });
 
     if (!treeResponse.ok) {
@@ -87,14 +105,20 @@ export async function cloneGitHubRepository(
     for (const gitNode of filteredTree) {
       const pathSegments = gitNode.path.split("/");
       const fileName = pathSegments[pathSegments.length - 1];
-      let fileTextContent = "";
+      
+      // 🚀 Fix: Clear default fallback schema for both blobs and directories
+      let fileTextContent = gitNode.type === "tree" ? "{}" : "";
 
       if (gitNode.type === "blob") {
         try {
           const blobUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${gitNode.path}?ref=${defaultBranch}`;
           const blobRes = await fetch(blobUrl, {
-            headers: { Accept: "application/vnd.github.v3.raw" },
-            next: { revalidate: 0 }
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: "application/vnd.github.v3.raw",
+              "User-Agent": "NextJS-App-Client"
+            },
+            cache: "no-store"
           });
           if (blobRes.ok) {
             fileTextContent = await blobRes.text();
@@ -119,16 +143,24 @@ export async function cloneGitHubRepository(
       });
     }
 
+    // 🚀 CRITICAL FIX FOR CANVAS: Seed standard initial snapshot layout mapping variables
+    // Taaki blank repo layout crash na kare canvas nodes rendering parser ko
     await prisma.repositoryMap.create({
       data: {
         playgroundId: playground.id,
-        nodes: [],
+        nodes: [
+          {
+            id: "root",
+            type: "customRoot",
+            data: { label: repo, path: "Root" },
+            position: { x: 250, y: 50 }
+          }
+        ],
         edges: [],
-        summaries: {},
+        summaries: { root: "Imported Workspace Base Structure Layout Cluster." },
       },
     });
 
-    // 🚀 LOG REPO CREATION EVENT TO CHANGELOG STREAM
     await prisma.activityLog.create({
       data: {
         title: "Repository Imported",
@@ -147,7 +179,7 @@ export async function cloneGitHubRepository(
 }
 
 /**
- * ACTION 2: Delta Pull Sync Engine with Stream Broadcasting
+ * ACTION 2: Delta Pull Sync Engine with Authentication Updates Included
  */
 export async function syncRepositoryUpstream(
   playgroundId: string,
@@ -159,6 +191,21 @@ export async function syncRepositoryUpstream(
       return { success: false, error: "401: Unauthorized identity session check." };
     }
 
+    const account = await prisma.account.findFirst({
+      where: { userId: session.user.id, provider: "github" }
+    });
+
+    if (!account || !account.access_token) {
+      return { success: false, error: "Missing sync engine verification clearance keys." };
+    }
+
+    const token = account.access_token;
+    const commonHeaders = {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github.v3+json",
+      "User-Agent": "NextJS-App-Client"
+    };
+
     const targetUrlInfo = parseGitHubUrl(repoUrl);
     if (!targetUrlInfo) {
       return { success: false, error: "Invalid repository remote configuration link map." };
@@ -166,19 +213,22 @@ export async function syncRepositoryUpstream(
     
     const { owner, repo } = targetUrlInfo;
 
-    // 1. Fetch remote branch details
-    const metaRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { next: { revalidate: 0 } });
-    if (!metaRes.ok) return { success: false, error: "Upstream repository missing or flagged private access." };
+    const metaRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { 
+      headers: commonHeaders,
+      next: { revalidate: 0 } 
+    });
+    if (!metaRes.ok) return { success: false, error: "Upstream repository missing or flagged private access structural restrictions." };
     const metaData = await metaRes.json();
     const branch = metaData.default_branch || "main";
 
-    // 2. Fetch full remote architecture array
-    const treeRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`, { next: { revalidate: 0 } });
+    const treeRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/trees/${branch}?recursive=1`, { 
+      headers: commonHeaders,
+      next: { revalidate: 0 } 
+    });
     if (!treeRes.ok) return { success: false, error: "Failed compiling remote Git file tree layout." };
     const treeData = await treeRes.json();
     const remoteTree: any[] = treeData.tree || [];
 
-    // 3. Extract existing local database files for mapping operations
     const localFiles = await prisma.templateFile.findMany({
       where: { playgroundId: playgroundId }
     });
@@ -194,7 +244,6 @@ export async function syncRepositoryUpstream(
     let filesUpdatedCount = 0;
     let filesCreatedCount = 0;
 
-    // 4. Atomic Upsert Loop for created and modified nodes
     for (const remoteNode of filteredRemoteTree) {
       let contentString = "";
 
@@ -202,7 +251,11 @@ export async function syncRepositoryUpstream(
         try {
           const blobUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${remoteNode.path}?ref=${branch}`;
           const blobRes = await fetch(blobUrl, {
-            headers: { Accept: "application/vnd.github.v3.raw" },
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: "application/vnd.github.v3.raw",
+              "User-Agent": "NextJS-App-Client"
+            },
             next: { revalidate: 0 }
           });
           if (blobRes.ok) {
@@ -239,7 +292,6 @@ export async function syncRepositoryUpstream(
       }
     }
 
-    // 5. Delete removed assets 
     const filesToDelete = localFiles.filter(f => !remotePaths.has(f.path));
     const filesDeletedCount = filesToDelete.length;
     if (filesDeletedCount > 0) {
@@ -248,18 +300,15 @@ export async function syncRepositoryUpstream(
       });
     }
 
-    // Get playground data to preserve proper organization scope context mapping
     const originalPlayground = await prisma.playground.findUnique({
       where: { id: playgroundId }
     });
 
-    // 6. Update timestamp signature values 
     await prisma.playground.update({
       where: { id: playgroundId },
       data: { updatedAt: new Date() }
     });
 
-    // 🚀 7. BROADCAST FRESH DELTA METRICS TO PLATFORM CHANGELOG LIVE STREAM
     await prisma.activityLog.create({
       data: {
         title: `Pulled Upstream: ${repo}`,

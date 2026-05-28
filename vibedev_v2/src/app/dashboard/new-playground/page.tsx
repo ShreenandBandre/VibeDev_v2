@@ -1,4 +1,4 @@
-"use client";
+"use client"; // Fixed typo here
 
 import React, { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -14,7 +14,6 @@ import {
   Lock, 
   Globe, 
   Loader2, 
-  Terminal, 
   CornerDownRight 
 } from "lucide-react";
 
@@ -27,50 +26,57 @@ export default function NewPlaygroundSelectionPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // Track states for the actual backend cloning transaction process run
+  // Use React transitions to handle server action execution seamlessly
+  const [isPending, startTransition] = useTransition();
   const [activeConnectingId, setActiveConnectingId] = useState<number | null>(null);
 
   useEffect(() => {
     async function loadGitHubRepos() {
       setLoading(true);
       setError(null);
-      const res = await getUserGitHubRepositories();
-      if (res.success && res.data) {
-        setRepos(res.data);
-      } else {
-        setError(res.error || "Failed loading user repo structures.");
+      try {
+        const res = await getUserGitHubRepositories();
+        if (res.success && res.data) {
+          setRepos(res.data);
+        } else {
+          setError(res.error || "Failed loading user repo structures.");
+        }
+      } catch (err: any) {
+        setError("⚠️ Failed to download your repository profile index from GitHub.");
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
     loadGitHubRepos();
   }, []);
 
-  // Filter repository cards on the fly with a lightweight fuzzy search match
   const filteredRepos = repos.filter((repo) =>
     repo.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     (repo.fullName && repo.fullName.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  const handleConnectRepository = async (repoUrl: string, repoId: number) => {
-    try {
-      setActiveConnectingId(repoId);
-      setError(null);
-      
-      // Fire our rock-solid server-action architecture directly!
-      const cloneRes = await cloneGitHubRepository(repoUrl, currentWorkspaceType, activeOrgId);
-      
-      if (cloneRes.success) {
-        // Smoothly send back to active dashboard deck to load the fresh cluster item
-        router.push("/dashboard");
-        router.refresh();
-      } else {
-        setError(cloneRes.error || "Clone execution module failure.");
+  const handleConnectRepository = (repoUrl: string, repoId: number) => {
+    setError(null);
+    setActiveConnectingId(repoId);
+    
+    // Wrapping the route change and action inside a transition 
+    // keeps the UI interactive and handles standard Next.js navigation pacing
+    startTransition(async () => {
+      try {
+        const cloneRes = await cloneGitHubRepository(repoUrl, currentWorkspaceType, activeOrgId);
+        
+        if (cloneRes.success) {
+          router.push("/dashboard");
+          router.refresh();
+        } else {
+          setError(cloneRes.error || "Clone execution module failure.");
+          setActiveConnectingId(null);
+        }
+      } catch (err: any) {
+        setError(err.message || "An unexpected error occurred.");
         setActiveConnectingId(null);
       }
-    } catch (err: any) {
-      setError(err.message || "An unexpected error occurred.");
-      setActiveConnectingId(null);
-    }
+    });
   };
 
   return (
@@ -110,7 +116,7 @@ export default function NewPlaygroundSelectionPage() {
       {/* ERROR HANDLER NOTIFIER BLOCK */}
       {error && (
         <div className="p-4 border border-red-900/40 bg-red-950/10 rounded-xl text-xs font-mono text-red-400">
-          ⚠️ {error}
+          {error}
         </div>
       )}
 
@@ -127,7 +133,7 @@ export default function NewPlaygroundSelectionPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {filteredRepos.map((repo) => {
-            const isProcessing = activeConnectingId === repo.id;
+            const isProcessing = isPending && activeConnectingId === repo.id;
 
             return (
               <div
@@ -172,7 +178,7 @@ export default function NewPlaygroundSelectionPage() {
                   
                   <Button
                     size="sm"
-                    disabled={activeConnectingId !== null}
+                    disabled={isPending}
                     onClick={() => handleConnectRepository(repo.htmlUrl, repo.id)}
                     className={`text-[11px] font-medium h-7 px-3 rounded-md border transition-all ${
                       isProcessing 

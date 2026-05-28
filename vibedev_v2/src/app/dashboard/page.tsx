@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useState, useTransition } from "react";
+import React, { useEffect, useState, useTransition, useRef } from "react";
 import { useWorkspace } from "@/context/workspace-context";
-import { getWorkspaceProjects } from "@/app/actions/projects";
-import { syncRepositoryUpstream } from "@/app/actions/git-cloner"; // 🚀 Sync Server Action
+import { getWorkspaceProjects, deleteWorkspaceProject } from "@/app/actions/projects"; // 🚀 Added delete server action import
+import { syncRepositoryUpstream } from "@/app/actions/git-cloner"; 
 import { Button } from "@/components/ui/button";
 import { ChangelogStream } from "@/components/dashboard/changelog-stream";
 import { useClonerStore } from "@/store/use-cloner-store"; 
@@ -15,7 +15,8 @@ import {
   MoreVertical, 
   Terminal,
   Layers3,
-  GitPullRequest
+  GitPullRequest,
+  Trash2
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -36,10 +37,26 @@ export default function DashboardPage() {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
+  // Tracks context menu state per project ID
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  // Tracks database deletion states
+  const [isDeletingId, setIsDeletingId] = useState<string | null>(null);
   // Tracks which specific card is processing upstream delta runs
   const [isSyncing, setIsSyncing] = useState<string | null>(null);
 
   const clonerStore = useClonerStore();
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Auto close open 3-dot menus on clicking anywhere outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setActiveMenuId(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const fetchProjects = () => {
     setError(null);
@@ -57,6 +74,33 @@ export default function DashboardPage() {
     fetchProjects();
   }, [currentWorkspaceType, activeOrgId]);
 
+  // Handler for hard-deleting the project instance out of MongoDB
+  const handleHardDeleteProject = async (projectId: string, projectTitle: string) => {
+    setActiveMenuId(null);
+    if (!confirm(`Kya aap sach me "${projectTitle}" ko database se permanently delete karna chahte hain?`)) {
+      return;
+    }
+
+    try {
+      setIsDeletingId(projectId);
+      // Calls Server Action directly to hit the mongo client context layer
+      const result = await deleteWorkspaceProject(projectId);
+      
+      if (result?.success || result === undefined) {
+        // Optimistically pull from current node matrix arrays
+        setProjects((prev) => prev.filter((p) => p.id !== projectId));
+        fetchProjects(); 
+      } else {
+        alert(result?.error || "Database operation rejected.");
+      }
+    } catch (err: any) {
+      console.error("Project terminal extraction cluster down:", err);
+      alert("Project delete karne me error aaya: " + (err.message || "Unknown Error"));
+    } finally {
+      setIsDeletingId(null);
+    }
+  };
+
   // Handler for calculating and applying delta synchronization updates
   const handlePullSync = async (projectId: string, descriptionText: string) => {
     const gitUrlMatch = descriptionText?.match(/https:\/\/github\.com\/[^\s]+/);
@@ -70,7 +114,7 @@ export default function DashboardPage() {
     setIsSyncing(null);
 
     if (result.success) {
-      fetchProjects(); // Instantly refresh tracking arrays on UI canvas grids
+      fetchProjects(); 
     } else {
       alert(result.error || "Failed running synchronization modules.");
     }
@@ -102,7 +146,7 @@ export default function DashboardPage() {
 
       {/* 2. CORE ACTION ENTRY CARDS */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* CREATE FRESH PLAYGROUND CARD (🚀 NOW CONNECTED VIA ROUTER REDIRECT) */}
+        {/* CREATE FRESH PLAYGROUND CARD */}
         <div 
           onClick={() => router.push("/dashboard/new-playground")}
           className="group relative border border-zinc-800/80 bg-zinc-900/20 rounded-2xl p-6 flex justify-between items-center overflow-hidden hover:border-zinc-700/60 transition-all duration-300 cursor-pointer"
@@ -192,39 +236,69 @@ export default function DashboardPage() {
               <p className="text-sm text-zinc-500">No projects mapped to this workspace module view.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6" ref={activeMenuId ? menuRef : null}>
               {projects.map((project) => {
                 const isGitWorkspace = project.description?.includes("https://github.com");
+                const isDeleting = isDeletingId === project.id;
 
                 return (
                   <div 
                     key={project.id} 
-                    className="border border-zinc-800 bg-zinc-900/20 rounded-xl p-5 space-y-4 hover:border-zinc-700/80 transition-all group flex flex-col justify-between"
+                    className={`border border-zinc-800 bg-zinc-900/20 rounded-xl p-5 space-y-4 hover:border-zinc-700/80 transition-all group flex flex-col justify-between relative ${isDeleting ? "opacity-40 pointer-events-none" : ""}`}
                   >
                     <div>
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between relative">
                         <span className="text-[10px] font-mono bg-blue-950/40 text-blue-400 border border-blue-900/50 px-2 py-0.5 rounded font-bold uppercase">
                           {project.template}
                         </span>
                         
-                        {/* UPSTREAM REFRESH TRIGGER FOR REPO CHANGES */}
-                        {isGitWorkspace && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={isSyncing === project.id}
-                            onClick={() => handlePullSync(project.id, project.description)}
-                            className="h-7 w-7 text-zinc-500 hover:text-emerald-400 bg-zinc-900/40 border border-zinc-800/80 rounded"
-                          >
-                            <RefreshCcw size={12} className={isSyncing === project.id ? "animate-spin text-emerald-400" : ""} />
-                          </Button>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                          {/* UPSTREAM REFRESH TRIGGER FOR REPO CHANGES */}
+                          {isGitWorkspace && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={isSyncing === project.id || isDeleting}
+                              onClick={() => handlePullSync(project.id, project.description)}
+                              className="h-7 w-7 text-zinc-500 hover:text-emerald-400 bg-zinc-900/40 border border-zinc-800/80 rounded"
+                            >
+                              <RefreshCcw size={12} className={isSyncing === project.id ? "animate-spin text-emerald-400" : ""} />
+                            </Button>
+                          )}
 
-                        {!isGitWorkspace && (
-                          <button className="text-zinc-600 hover:text-zinc-300 transition p-1">
-                            <MoreVertical size={14} />
-                          </button>
-                        )}
+                          {/* UNIVERSAL 3-DOTS CONTEXT MENUS CONTROL */}
+                          <div className="relative">
+                            <Button 
+                              variant="ghost"
+                              size="icon"
+                              disabled={isDeleting}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveMenuId(activeMenuId === project.id ? null : project.id);
+                              }}
+                              className="h-7 w-7 text-zinc-500 hover:text-zinc-300 bg-zinc-900/40 border border-zinc-800/80 rounded flex items-center justify-center"
+                            >
+                              {isDeleting ? (
+                                <Loader2 size={12} className="animate-spin text-red-500" />
+                              ) : (
+                                <MoreVertical size={12} />
+                              )}
+                            </Button>
+
+                            {/* FLOATING ACTION OVERLAY DROPDOWN */}
+                            {activeMenuId === project.id && (
+                              <div className="absolute right-0 top-8 bg-zinc-950 border border-zinc-800 text-zinc-300 w-40 rounded-xl shadow-2xl z-50 py-1 font-sans">
+                                <button
+                                  onClick={() => handleHardDeleteProject(project.id, project.title)}
+                                  className="w-full text-left text-red-400 hover:text-red-300 hover:bg-red-950/20 px-3 py-2 text-xs font-medium flex items-center gap-2 transition-colors"
+                                >
+                                  <Trash2 size={13} />
+                                  <span>Delete Project</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </div>
 
                       <div className="mt-3">
@@ -253,6 +327,7 @@ export default function DashboardPage() {
                         <Button
                           size="sm"
                           variant="ghost"
+                          disabled={isDeleting}
                           onClick={() => router.push(`/dashboard/visualizer/${project.id}`)}
                           className="w-full bg-zinc-900/60 text-zinc-400 hover:bg-zinc-800 hover:text-white border border-zinc-800 text-xs h-8 gap-1.5"
                         >
@@ -261,6 +336,7 @@ export default function DashboardPage() {
                         </Button>
                         <Button
                           size="sm"
+                          disabled={isDeleting}
                           onClick={() => router.push(`/dashboard/ide/${project.id}`)}
                           className="w-full bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/60 text-xs h-8 gap-1.5"
                         >

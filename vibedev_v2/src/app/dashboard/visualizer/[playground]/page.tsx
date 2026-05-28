@@ -1,4 +1,3 @@
-// filepath: /src/app/dashboard/visualizer/[playground]/page.tsx
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
@@ -6,12 +5,12 @@ import { useParams } from "next/navigation";
 import { useVisualizerStore } from "@/store/use-visualizer-store";
 import { CodeCanvas } from "@/components/visualizer/code-canvas";
 import { CodeInspector } from "@/components/visualizer/code-inspector";
-import { getUserWorkspaces } from "@/app/actions/get-user-workspaces";
 
 // Import Refactored Components
 import { TopToolbar } from "@/components/visualizer/top-toolbar";
 import { TabsEditorPanel } from "@/components/visualizer/tabs-editor-panel";
 import { SandboxPredictorPanel } from "@/components/visualizer/sandbox-predictor-panel";
+import { AIChatBox } from "@/components/visualizer/ai-chat-box";
 
 interface TabItem {
   id: string;
@@ -26,14 +25,12 @@ export default function DeepWorkspaceVisualizerPage() {
 
   const {
     nodes, edges, summaries, isPending, selectedNode, selectedFile, metricsOverlayMode, isActionPending,
-    availableWorkspaces, activeWorkspace, setAvailableWorkspaces, setActiveWorkspace,
     setSelectedNode, setSelectedFile, setMetricsOverlayMode, loadTopologyMapData, executeAIAnalysis, predictCodeChanges, resetStore,
   } = useVisualizerStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [sidebarWidth, setSidebarWidth] = useState(440); 
   const [inspectorWidth, setInspectorWidth] = useState(340); 
-  const [workspaceDropdownOpen, setWorkspaceDropdownOpen] = useState(false);
   
   const isResizingLeft = useRef(false);
   const isResizingRight = useRef(false);
@@ -49,23 +46,6 @@ export default function DeepWorkspaceVisualizerPage() {
   const [timelineStep, setTimelineStep] = useState(0);
 
   const activeNodeId = selectedNode ? String(selectedNode.id || selectedNode._id) : "";
-
-  // Synchronize initial workspaces
-  useEffect(() => {
-    async function synchronizeWorkspaces() {
-      try {
-        const payload = await getUserWorkspaces();
-        if (payload && payload.workspaces) {
-          setAvailableWorkspaces(payload.workspaces);
-          const defaultSpace = payload.workspaces.find(w => w.type === "PERSONAL") || payload.workspaces[0];
-          setActiveWorkspace(defaultSpace);
-        }
-      } catch (err) {
-        console.error("Workspace configuration mismatch:", err);
-      }
-    }
-    synchronizeWorkspaces();
-  }, []);
 
   useEffect(() => {
     if (playgroundId) loadTopologyMapData(playgroundId);
@@ -195,12 +175,6 @@ export default function DeepWorkspaceVisualizerPage() {
     <div ref={containerRef} className="w-full h-screen flex flex-col bg-zinc-900 overflow-hidden relative select-none text-zinc-100 font-sans antialiased">
       
       <TopToolbar 
-        workspaceDropdownOpen={workspaceDropdownOpen}
-        setWorkspaceDropdownOpen={setWorkspaceDropdownOpen}
-        activeWorkspace={activeWorkspace}
-        availableWorkspaces={availableWorkspaces}
-        setActiveWorkspace={setActiveWorkspace}
-        onWorkspaceChange={() => playgroundId && loadTopologyMapData(playgroundId)}
         metricsOverlayMode={metricsOverlayMode}
         setMetricsOverlayMode={setMetricsOverlayMode}
         isTerminalOpen={isTerminalOpen}
@@ -216,26 +190,29 @@ export default function DeepWorkspaceVisualizerPage() {
 
       <div className="flex-1 flex relative overflow-hidden w-full bg-zinc-900">
         
-        <TabsEditorPanel 
-          width={sidebarWidth}
-          openTabs={openTabs}
-          activeTabId={activeTabId}
-          editableCodeString={editableCodeString}
-          handleTabSelect={handleTabSelect}
-          handleTabClose={handleTabClose}
-          handleCodeWorkspaceInput={handleCodeWorkspaceInput}
-        />
-
         {openTabs.length > 0 && (
-          <div onMouseDown={startResizeLeft} className="w-0.5 bg-transparent hover:bg-indigo-500/40 active:bg-indigo-500 transition-colors cursor-col-resize h-full z-40 shrink-0" />
+          <>
+            <TabsEditorPanel 
+              width={sidebarWidth}
+              openTabs={openTabs}
+              activeTabId={activeTabId}
+              editableCodeString={editableCodeString}
+              handleTabSelect={handleTabSelect}
+              handleTabClose={handleTabClose}
+              handleCodeWorkspaceInput={handleCodeWorkspaceInput}
+            />
+            <div onMouseDown={startResizeLeft} className="w-0.5 bg-transparent hover:bg-indigo-500/40 active:bg-indigo-500 transition-colors cursor-col-resize h-full z-40 shrink-0" />
+          </>
         )}
 
+        {/* 🛠️ DRILL DOWN CANVAS WINDOW WRAPPER */}
         <div className="flex-1 h-full p-3 overflow-hidden min-w-[300px] relative bg-zinc-900/50">
+          
+          {/* Canvas always stays at full width now */}
           <CodeCanvas 
             nodes={nodes} 
             edges={edges} 
             summaries={summaries} 
-            timelineStep={timelineStep}
             onNodeSelect={(node) => {
               setSelectedNode(node);
               if (node.type === "file") setSelectedFile(node);
@@ -253,6 +230,11 @@ export default function DeepWorkspaceVisualizerPage() {
               handleRunPrediction={handleRunPrediction}
               setIsSandboxOpen={setIsSandboxOpen}
             />
+          )}
+
+          {/* 🚀 ADVANCED FLOATING LAYER AI CHATBOX OVERLAY */}
+          {isTerminalOpen && (
+            <AIChatBox onClose={() => setIsTerminalOpen(false)} />
           )}
         </div>
 

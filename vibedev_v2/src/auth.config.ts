@@ -5,7 +5,7 @@ import Google from "next-auth/providers/google";
 
 export const authConfig = {
   providers: [
-    Github({ clientId: process.env.GITHUB_ID, clientSecret: process.env.GITHUB_SECRET }),
+    Github({ clientId: process.env.GITHUB_ID, clientSecret: process.env.GITHUB_SECRET, }),
     Google({ clientId: process.env.GOOGLE_ID, clientSecret: process.env.GOOGLE_SECRET }),
   ],
   // This is the key: forcing the dashboard as the destination
