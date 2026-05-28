@@ -3,6 +3,7 @@
 import { prisma } from "@/lib/prisma"; 
 import { auth } from "@/auth"; 
 import { Templates } from "@prisma/client";
+import { revalidatePath } from "next/cache"; 
 
 interface CloneRepoResponse {
   success: boolean;
@@ -21,6 +22,51 @@ function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   const match = url.match(regex);
   if (!match) return null;
   return { owner: match[1], repo: match[2] };
+}
+
+// 🤖 AUTOMATED DYNAMIC WEBHOOK REGISTER ENGINE
+async function registerDynamicGitHubWebhook(owner: string, repo: string, token: string) {
+  try {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (!appUrl) {
+      console.warn("⚠️ Webhook registration skipped: NEXT_PUBLIC_APP_URL environment variable is empty.");
+      return;
+    }
+
+    const webhookRegistrationUrl = `https://api.github.com/repos/${owner}/${repo}/hooks`;
+    
+    const response = await fetch(webhookRegistrationUrl, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github.v3+json",
+        "Content-Type": "application/json",
+        "User-Agent": "NextJS-App-Client"
+      },
+      body: JSON.stringify({
+        name: "web",
+        active: true,
+        events: ["push"],
+        config: {
+          url: `${appUrl}/api/webhooks/github`, 
+          content_type: "json",
+          secret: process.env.GITHUB_WEBHOOK_SECRET || "" 
+        }
+      }),
+      cache: "no-store"
+    });
+
+    if (response.status === 201) {
+      console.log(`✅ [DYNAMIC HOOK ENGINE]: Webhook successfully injected into ${owner}/${repo}`);
+    } else if (response.status === 422) {
+      console.log(`ℹ️ [DYNAMIC HOOK ENGINE]: Webhook already exists on ${owner}/${repo}, skipping redirection pass.`);
+    } else {
+      const errData = await response.json();
+      console.error(`❌ GitHub Hook API responded with status ${response.status}:`, errData);
+    }
+  } catch (hookErr) {
+    console.error("Critical failure during programmatic webhook registration execution:", hookErr);
+  }
 }
 
 export async function cloneGitHubRepository(
@@ -62,7 +108,7 @@ export async function cloneGitHubRepository(
     const repoMetaUrl = `https://api.github.com/repos/${owner}/${repo}`;
     const metaResponse = await fetch(repoMetaUrl, {
       headers: commonHeaders,
-      cache: "no-store" // 🚀 No cache taaki purana layout data fetch na ho loop mein
+      cache: "no-store" 
     });
 
     if (!metaResponse.ok) {
@@ -106,7 +152,6 @@ export async function cloneGitHubRepository(
       const pathSegments = gitNode.path.split("/");
       const fileName = pathSegments[pathSegments.length - 1];
       
-      // 🚀 Fix: Clear default fallback schema for both blobs and directories
       let fileTextContent = gitNode.type === "tree" ? "{}" : "";
 
       if (gitNode.type === "blob") {
@@ -143,11 +188,12 @@ export async function cloneGitHubRepository(
       });
     }
 
-    // 🚀 CRITICAL FIX FOR CANVAS: Seed standard initial snapshot layout mapping variables
-    // Taaki blank repo layout crash na kare canvas nodes rendering parser ko
     await prisma.repositoryMap.create({
       data: {
         playgroundId: playground.id,
+        ownerName: owner,          
+        repositoryName: repo,      
+        githubToken: "",           
         nodes: [
           {
             id: "root",
@@ -170,6 +216,11 @@ export async function cloneGitHubRepository(
         organizationId: workspaceType === "team" ? activeOrgId : null,
       }
     });
+
+    // 🚀 AUTOMATION TRIGGER: Background webhook injection initialized
+    registerDynamicGitHubWebhook(owner, repo, token);
+
+    revalidatePath("/dashboard");
 
     return { success: true, playgroundId: playground.id };
   } catch (error: any) {
@@ -212,6 +263,14 @@ export async function syncRepositoryUpstream(
     }
     
     const { owner, repo } = targetUrlInfo;
+
+    await prisma.repositoryMap.updateMany({
+      where: { playgroundId: playgroundId },
+      data: {
+        ownerName: owner,
+        repositoryName: repo
+      }
+    });
 
     const metaRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { 
       headers: commonHeaders,
@@ -318,6 +377,8 @@ export async function syncRepositoryUpstream(
         organizationId: originalPlayground?.organizationId || null,
       }
     });
+
+    revalidatePath("/dashboard");
 
     return { success: true, message: "Workspace synced with upstream changes smoothly!" };
   } catch (err: any) {

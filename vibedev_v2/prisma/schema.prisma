@@ -214,6 +214,11 @@ model RepositoryMap {
   playgroundId String     @unique @map("playground_id")
   playground   Playground @relation(fields: [playgroundId], references: [id], onDelete: Cascade)
 
+  // 🚀 Added missing dynamic routing fields
+  ownerName      String   @default("") @map("owner_name")
+  repositoryName String   @default("") @map("repository_name")
+  githubToken    String?  @map("github_token")
+
   nodes        Json
   edges        Json
   summaries    Json?

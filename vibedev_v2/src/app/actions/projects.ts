@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 import { revalidatePath } from "next/cache";
 
-// 1. GET WORKSPACE PROJECTS ACTION (Existing Logic)
+// 1. GET WORKSPACE PROJECTS ACTION (Fixed Select Target Engine)
 export async function getWorkspaceProjects(workspaceType: "personal" | "team", orgId: string | null) {
   const session = await auth();
   if (!session?.user?.email) {
@@ -34,7 +34,11 @@ export async function getWorkspaceProjects(workspaceType: "personal" | "team", o
       where: { organizationId: orgId },
       include: {
         repositoryMap: {
-          select: { lastAnalyzed: true }
+          select: { 
+            lastAnalyzed: true,
+            ownerName: true,       // 🔥 Selected for Frontend Dashboard layout sync
+            repositoryName: true   // 🔥 Selected for Frontend Dashboard layout sync
+          }
         }
       },
       orderBy: { updatedAt: "desc" }
@@ -48,14 +52,18 @@ export async function getWorkspaceProjects(workspaceType: "personal" | "team", o
     },
     include: {
       repositoryMap: {
-        select: { lastAnalyzed: true }
+        select: { 
+          lastAnalyzed: true,
+          ownerName: true,       // 🔥 Selected for Frontend Dashboard layout sync
+          repositoryName: true   // 🔥 Selected for Frontend Dashboard layout sync
+        }
       }
     },
     orderBy: { updatedAt: "desc" }
   });
 }
 
-// 🚀 2. NEW: DELETE WORKSPACE PROJECT ACTION (Prisma Integration)
+// 🚀 2. DELETE WORKSPACE PROJECT ACTION
 export async function deleteWorkspaceProject(projectId: string) {
   const session = await auth();
   if (!session?.user?.email) {
@@ -67,7 +75,6 @@ export async function deleteWorkspaceProject(projectId: string) {
   }
 
   try {
-    // Current user context match nikaalna secure delete ke liye
     const user = await prisma.user.findUnique({
       where: { email: session.user.email },
       select: { id: true }
@@ -75,7 +82,6 @@ export async function deleteWorkspaceProject(projectId: string) {
 
     if (!user) return { success: false, error: "User context not found in storage." };
 
-    // Pehle double check karo ki playground exist karta hai ya nahi
     const targetPlayground = await prisma.playground.findUnique({
       where: { id: projectId }
     });
@@ -84,29 +90,20 @@ export async function deleteWorkspaceProject(projectId: string) {
       return { success: false, error: "Target playground card already deleted or missing." };
     }
 
-    // 🔒 Security Check: Kisi dusre user ke assets delete karne se block karne ke liye
-    // Agar team playground nahi hai, toh check karo user khud owner hai ya nahi
     if (!targetPlayground.organizationId && targetPlayground.userId !== user.id) {
       return { success: false, error: "Forbidden: You do not own this playground sandbox." };
     }
 
-    // =========================================================================
-    // 🛠️ PRISMA CASCADE PURGE (Safai Engine)
-    // Agar tumhare Prisma Schema me relation fields mapped hain (like repositoryMap, elements, nodes)
-    // toh dependent records pehle udayenge agar "onDelete: Cascade" DB level par nahi laga hai:
-    // =========================================================================
-    
     // 1. Repository Map delete karo agar exist karta ho
     await prisma.repositoryMap.deleteMany({
-      where: { playgroundId: projectId } // ensure field name matches your prisma schema relation fields
+      where: { playgroundId: projectId }
     });
 
-    // 2. Main target playground ko MongoDB collection se wipe out karo
+    // 2. Main target playground ko collection se wipe out karo
     await prisma.playground.delete({
       where: { id: projectId }
     });
 
-    // Next.js client caching templates flush update run trigger krega
     revalidatePath("/dashboard");
 
     return { 

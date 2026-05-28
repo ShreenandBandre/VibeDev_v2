@@ -63,12 +63,10 @@ export function TabsEditorPanel({
                 <HighlightedCodeText code={editableCodeString} />
               </div>
               <textarea
-                value={editableCodeString}
-                onChange={handleCodeWorkspaceInput}
-                spellCheck={false}
-                className="absolute top-0 left-0 w-full min-h-full bg-transparent text-transparent caret-indigo-400 resize-none outline-none overflow-hidden font-mono text-[11px] leading-relaxed p-0 whitespace-pre selection:bg-indigo-500/30 selection:text-transparent z-20"
-                placeholder="Modifying architecture layouts here..."
-              />
+  value={editableCodeString}
+  onChange={handleCodeWorkspaceInput} // 🚀 Ensure this is strictly fired on key stroke events!
+  className="w-full h-full font-mono text-xs bg-zinc-950 p-4 text-zinc-300 focus:outline-none"
+/>
             </div>
           ) : (
             <span className="text-zinc-500 italic font-mono text-[11px]">// Click an open codebase module slot...</span>
